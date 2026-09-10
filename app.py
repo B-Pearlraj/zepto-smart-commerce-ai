@@ -2,7 +2,6 @@ import datetime
 import os
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from api_client import APIClient
 
@@ -42,13 +41,15 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     :root {
-        --zc-primary: #6D28D9;
-        --zc-accent: #EC4899;
-        --zc-ink: #2A2640;
+        --zc-primary: #5B4FE8;
+        --zc-primary-dark: #4338CA;
+        --zc-ink: #111827;
         --zc-muted: #6B7280;
-        --zc-bg: #E9EAF3;
-        --zc-shadow-dark: rgba(163, 168, 200, 0.65);
-        --zc-shadow-light: rgba(255, 255, 255, 0.9);
+        --zc-border: #E5E7EB;
+        --zc-surface: #FFFFFF;
+        --zc-page: #F8F9FC;
+        --zc-success: #16A34A;
+        --zc-warning: #D97706;
     }
 
     html, body, [class*="css"] {
@@ -56,109 +57,130 @@ st.markdown(
     }
 
     .stApp {
-        background: var(--zc-bg);
+        background: var(--zc-page);
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        max-width: 1100px;
     }
 
     /* ---------- HEADER ---------- */
 
     .main-title {
         text-align: center;
-        font-size: 40px;
+        font-size: 34px;
         font-weight: 800;
         letter-spacing: -0.5px;
+        color: var(--zc-ink);
         margin-top: 4px;
-        margin-bottom: 6px;
-        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        margin-bottom: 4px;
     }
 
     .subtitle {
         text-align: center;
         color: var(--zc-muted);
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 500;
-        margin-bottom: 20px;
+        margin-bottom: 28px;
     }
 
     /* ---------- SECTION TITLES ---------- */
 
     .section-title {
-        font-size: 19px;
+        display: flex;
+        align-items: center;
+        font-size: 16px;
         font-weight: 700;
         color: var(--zc-ink);
-        margin-top: 6px;
-        margin-bottom: 14px;
-        padding: 10px 16px;
-        border-radius: 12px;
-        display: inline-block;
-        background: var(--zc-bg);
-        box-shadow:
-            4px 4px 8px var(--zc-shadow-dark),
-            -4px -4px 8px var(--zc-shadow-light);
+        margin-top: 4px;
+        margin-bottom: 12px;
     }
 
-    /* ---------- RAISED "NEUMORPHIC" CARD SECTIONS ---------- */
+    .field-group-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--zc-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-bottom: 2px;
+        margin-top: 2px;
+    }
+
+    /* ---------- CARD SECTIONS (consistent box + spacing) ---------- */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--zc-bg) !important;
-        border-radius: 22px !important;
-        border: none !important;
-        box-shadow:
-            9px 9px 18px var(--zc-shadow-dark),
-            -9px -9px 18px var(--zc-shadow-light) !important;
-        padding: 10px 6px;
-        margin-bottom: 22px;
+        background: var(--zc-surface) !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--zc-border) !important;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        padding: 20px 20px 8px 20px;
+        margin-bottom: 20px;
     }
 
-    /* ---------- INPUTS (embossed / pressed-in look) ---------- */
+    /* Align every row of inputs to the same top edge, even spacing */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        display: flex;
+        flex-direction: column;
+    }
+
+    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stElementContainer"] {
+        width: 100%;
+    }
+
+    /* ---------- INPUTS ---------- */
+
+    .stTextInput, .stNumberInput, .stSelectbox, .stDateInput {
+        width: 100%;
+    }
 
     .stTextInput input,
     .stNumberInput input,
     .stSelectbox div[data-baseweb="select"] > div,
     .stDateInput input {
-        border-radius: 12px !important;
-        border: none !important;
-        background: var(--zc-bg) !important;
-        box-shadow:
-            inset 4px 4px 8px var(--zc-shadow-dark),
-            inset -4px -4px 8px var(--zc-shadow-light) !important;
+        border-radius: 8px !important;
+        border: 1px solid var(--zc-border) !important;
+        background: var(--zc-surface) !important;
         color: var(--zc-ink) !important;
     }
 
     .stTextInput input:focus,
     .stNumberInput input:focus {
-        box-shadow:
-            inset 3px 3px 6px var(--zc-shadow-dark),
-            inset -3px -3px 6px var(--zc-shadow-light),
-            0 0 0 2px var(--zc-primary) !important;
+        border-color: var(--zc-primary) !important;
+        box-shadow: 0 0 0 1px var(--zc-primary) !important;
     }
 
     label, .stMarkdown p strong {
         color: var(--zc-ink) !important;
         font-weight: 600 !important;
+        font-size: 13px !important;
     }
 
-    /* ---------- PREDICTION RESULT CARDS (raised, 3D) ---------- */
+    div[data-testid="stWidgetLabel"] {
+        min-height: 20px;
+        margin-bottom: 2px;
+    }
+
+    /* ---------- PREDICTION RESULT CARDS (equal height, centered) ---------- */
 
     .prediction-card {
-        background: var(--zc-bg);
-        border: none;
-        border-radius: 20px;
-        padding: 24px;
-        min-height: 145px;
-        box-shadow:
-            10px 10px 20px var(--zc-shadow-dark),
-            -10px -10px 20px var(--zc-shadow-light);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .prediction-card:hover {
-        transform: translateY(-3px);
-        box-shadow:
-            13px 13px 24px var(--zc-shadow-dark),
-            -13px -13px 24px var(--zc-shadow-light);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: var(--zc-surface);
+        border: 1px solid var(--zc-border);
+        border-radius: 12px;
+        padding: 20px;
+        height: 140px;
+        box-sizing: border-box;
+        box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
     }
 
     .prediction-label {
@@ -168,229 +190,101 @@ st.markdown(
         text-transform: uppercase;
         letter-spacing: 0.4px;
         margin-bottom: 8px;
+        width: 100%;
     }
 
     .prediction-value {
-        font-size: 32px;
+        font-size: 30px;
         font-weight: 800;
-        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: var(--zc-primary-dark);
+        width: 100%;
     }
 
     /* ---------- LIVE DATA CARDS ---------- */
 
     .live-card {
-        background: var(--zc-bg);
-        border: none;
-        border-radius: 20px;
-        padding: 18px;
-        box-shadow:
-            8px 8px 16px var(--zc-shadow-dark),
-            -8px -8px 16px var(--zc-shadow-light);
+        background: var(--zc-surface);
+        border: 1px solid var(--zc-border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
     }
 
     div[data-testid="stMetric"] {
-        background: var(--zc-bg);
-        border-radius: 14px;
-        padding: 14px 16px;
-        box-shadow:
-            inset 4px 4px 8px var(--zc-shadow-dark),
-            inset -4px -4px 8px var(--zc-shadow-light);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: var(--zc-page);
+        border: 1px solid var(--zc-border);
+        border-radius: 10px;
+        padding: 12px 8px;
+        height: 88px;
+        box-sizing: border-box;
     }
 
     div[data-testid="stMetricLabel"] {
         color: var(--zc-muted) !important;
+        width: 100%;
+        justify-content: center;
     }
 
     div[data-testid="stMetricValue"] {
         color: var(--zc-ink) !important;
         font-weight: 700 !important;
+        width: 100%;
+        justify-content: center;
     }
 
-    /* ---------- BUTTONS (raised, press-down on click) ---------- */
+    /* ---------- BUTTONS ---------- */
 
     .stButton > button {
-        font-weight: 700;
-        border-radius: 14px !important;
-        border: none !important;
-        background: var(--zc-bg) !important;
-        color: var(--zc-ink) !important;
-        box-shadow:
-            6px 6px 12px var(--zc-shadow-dark),
-            -6px -6px 12px var(--zc-shadow-light) !important;
-        transition: all 0.12s ease;
-    }
-
-    .stButton > button:active {
-        box-shadow:
-            inset 4px 4px 8px var(--zc-shadow-dark),
-            inset -4px -4px 8px var(--zc-shadow-light) !important;
-        transform: translateY(1px);
+        font-weight: 600;
+        border-radius: 8px !important;
+        border: 1px solid var(--zc-border) !important;
     }
 
     .stButton > button[kind="primary"] {
-        background: linear-gradient(145deg, var(--zc-primary) 0%, var(--zc-accent) 100%) !important;
-        color: white !important;
+        background: var(--zc-primary) !important;
         border: none !important;
-        box-shadow:
-            8px 8px 18px rgba(109, 40, 217, 0.35),
-            -6px -6px 14px rgba(255, 255, 255, 0.6) !important;
-        font-size: 16px;
-        padding: 0.65em 0;
+        color: white !important;
+        font-size: 15px;
+        padding: 0.6em 0;
     }
 
-    .stButton > button[kind="primary"]:active {
-        box-shadow: inset 4px 4px 10px rgba(0,0,0,0.25) !important;
-        transform: translateY(1px);
+    .stButton > button[kind="primary"]:hover {
+        background: var(--zc-primary-dark) !important;
     }
 
     /* ---------- SIDEBAR ---------- */
 
     section[data-testid="stSidebar"] {
-        background: var(--zc-bg);
-        box-shadow: 6px 0 16px var(--zc-shadow-dark);
+        background: var(--zc-surface);
+        border-right: 1px solid var(--zc-border);
     }
 
-    /* ---------- ALERTS / INFO BOXES ---------- */
+    /* ---------- ALERTS ---------- */
 
     div[data-testid="stAlertContainer"] {
-        border-radius: 14px !important;
-        box-shadow:
-            5px 5px 10px var(--zc-shadow-dark),
-            -5px -5px 10px var(--zc-shadow-light) !important;
-        border: none !important;
+        border-radius: 10px !important;
     }
 
-    /* ---------- DIVIDER ---------- */
+    /* ---------- DIVIDER / CAPTION ---------- */
 
     hr {
-        border: none !important;
-        height: 2px !important;
-        background: linear-gradient(90deg, transparent, var(--zc-shadow-dark), transparent) !important;
+        border-color: var(--zc-border) !important;
     }
-
-    /* ---------- CAPTION / FOOTER ---------- */
 
     .stCaption, [data-testid="stCaptionContainer"] {
         color: var(--zc-muted) !important;
-    }
-
-    /* ---------- 3D HERO CANVAS WRAPPER ---------- */
-
-    .hero-3d-wrap {
-        display: flex;
-        justify-content: center;
-        margin-bottom: -10px;
+        text-align: center;
     }
 
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-
-# ============================================================
-# 3D HERO GRAPHIC (Three.js — rotating delivery package)
-# ============================================================
-
-def render_3d_hero():
-    components.html(
-        """
-        <div style="display:flex;justify-content:center;align-items:center;
-                    background:transparent;overflow:visible;">
-          <canvas id="zc3d" width="260" height="220"
-                  style="background:transparent;"></canvas>
-        </div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-        <script>
-        (function () {
-            const canvas = document.getElementById('zc3d');
-            const renderer = new THREE.WebGLRenderer({
-                canvas: canvas, alpha: true, antialias: true
-            });
-            renderer.setSize(260, 220, false);
-            renderer.setPixelRatio(window.devicePixelRatio || 1);
-
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(40, 260 / 220, 0.1, 100);
-            camera.position.set(0, 1.4, 6.2);
-            camera.lookAt(0, 0, 0);
-
-            // Lights
-            scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-            const pLight1 = new THREE.PointLight(0x6D28D9, 2.2, 20);
-            pLight1.position.set(-3, 3, 4);
-            scene.add(pLight1);
-            const pLight2 = new THREE.PointLight(0xEC4899, 2.2, 20);
-            pLight2.position.set(3, -2, 3);
-            scene.add(pLight2);
-            const dLight = new THREE.DirectionalLight(0xffffff, 0.6);
-            dLight.position.set(2, 4, 5);
-            scene.add(dLight);
-
-            // Group: delivery package (box + ribbon cross)
-            const group = new THREE.Group();
-
-            const boxGeo = new THREE.BoxGeometry(2.1, 2.1, 2.1);
-            const boxMat = new THREE.MeshStandardMaterial({
-                color: 0x8B5CF6, metalness: 0.35, roughness: 0.35
-            });
-            const box = new THREE.Mesh(boxGeo, boxMat);
-            group.add(box);
-
-            const ribbonMat = new THREE.MeshStandardMaterial({
-                color: 0xEC4899, metalness: 0.4, roughness: 0.3
-            });
-
-            const ribbonV = new THREE.Mesh(
-                new THREE.BoxGeometry(0.32, 2.16, 2.16), ribbonMat
-            );
-            group.add(ribbonV);
-
-            const ribbonH = new THREE.Mesh(
-                new THREE.BoxGeometry(2.16, 0.32, 2.16), ribbonMat
-            );
-            group.add(ribbonH);
-
-            const bowGeo = new THREE.TorusKnotGeometry(0.32, 0.11, 80, 12, 2, 3);
-            const bowMat = new THREE.MeshStandardMaterial({
-                color: 0xF9A8D4, metalness: 0.5, roughness: 0.25
-            });
-            const bow = new THREE.Mesh(bowGeo, bowMat);
-            bow.position.set(0, 1.25, 0);
-            bow.scale.set(0.9, 0.9, 0.9);
-            group.add(bow);
-
-            group.rotation.x = 0.35;
-            scene.add(group);
-
-            // Soft floor shadow disc
-            const discGeo = new THREE.CircleGeometry(1.6, 48);
-            const discMat = new THREE.MeshBasicMaterial({
-                color: 0x000000, transparent: true, opacity: 0.10
-            });
-            const disc = new THREE.Mesh(discGeo, discMat);
-            disc.rotation.x = -Math.PI / 2;
-            disc.position.y = -1.55;
-            scene.add(disc);
-
-            let t = 0;
-            function animate() {
-                requestAnimationFrame(animate);
-                t += 0.01;
-                group.rotation.y += 0.012;
-                group.position.y = Math.sin(t) * 0.12;
-                bow.rotation.y += 0.02;
-                renderer.render(scene, camera);
-            }
-            animate();
-        })();
-        </script>
-        """,
-        height=220,
-    )
 
 
 # ============================================================
@@ -464,8 +358,6 @@ def reset_prediction():
 # ============================================================
 # HEADER
 # ============================================================
-
-render_3d_hero()
 
 st.markdown(
     '<div class="main-title">🛵 Zepto Smart Commerce AI</div>',
@@ -564,11 +456,14 @@ with st.container(border=True):
             ],
         )
 
+    st.markdown(
+        '<div class="field-group-label">Customer Location</div>',
+        unsafe_allow_html=True,
+    )
+
     c1, c2 = st.columns(2)
 
     with c1:
-
-        st.markdown("**Customer Location**")
 
         customer_lat = st.number_input(
             "Customer Latitude",
@@ -579,8 +474,6 @@ with st.container(border=True):
         )
 
     with c2:
-
-        st.markdown("**Customer Location**")
 
         customer_lon = st.number_input(
             "Customer Longitude",
@@ -1535,7 +1428,6 @@ st.caption(
     "Zepto Smart Commerce AI Platform • "
     "HGB-v1 • Live OpenWeather • Live TomTom Traffic • PostgreSQL"
 )
-
 st.markdown(
     "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
     unsafe_allow_html=True
