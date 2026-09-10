@@ -41,23 +41,17 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     :root {
-        --zc-primary: #5B4FE8;
-        --zc-primary-dark: #4338CA;
-        --zc-ink: #111827;
-        --zc-muted: #6B7280;
-        --zc-border: #E5E7EB;
-        --zc-surface: #FFFFFF;
-        --zc-page: #F8F9FC;
-        --zc-success: #16A34A;
-        --zc-warning: #D97706;
+        --zc-primary: #7C6FF5;
+        --zc-primary-dark: #A78BFA;
+        --zc-ink: #F3F4F6;
+        --zc-muted: #9CA3AF;
+        --zc-border: rgba(255, 255, 255, 0.10);
+        --zc-surface: #1B1E2B;
+        --zc-surface-soft: #22263A;
     }
 
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, sans-serif;
-    }
-
-    .stApp {
-        background: var(--zc-page);
     }
 
     .block-container {
@@ -72,14 +66,14 @@ st.markdown(
         font-size: 34px;
         font-weight: 800;
         letter-spacing: -0.5px;
-        color: var(--zc-ink);
+        color: var(--zc-ink) !important;
         margin-top: 4px;
         margin-bottom: 4px;
     }
 
     .subtitle {
         text-align: center;
-        color: var(--zc-muted);
+        color: var(--zc-muted) !important;
         font-size: 15px;
         font-weight: 500;
         margin-bottom: 28px;
@@ -92,7 +86,7 @@ st.markdown(
         align-items: center;
         font-size: 16px;
         font-weight: 700;
-        color: var(--zc-ink);
+        color: var(--zc-ink) !important;
         margin-top: 4px;
         margin-bottom: 12px;
     }
@@ -100,37 +94,37 @@ st.markdown(
     .field-group-label {
         font-size: 12px;
         font-weight: 700;
-        color: var(--zc-muted);
+        color: var(--zc-muted) !important;
         text-transform: uppercase;
         letter-spacing: 0.4px;
         margin-bottom: 2px;
         margin-top: 2px;
     }
 
-    /* ---------- CARD SECTIONS (consistent box + spacing) ---------- */
+    /* ---------- CARD SECTIONS (form containers) ---------- */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: var(--zc-surface) !important;
         border-radius: 12px !important;
         border: 1px solid var(--zc-border) !important;
-        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
         padding: 20px 20px 8px 20px;
         margin-bottom: 20px;
     }
 
-    /* Align every row of inputs to the same top edge, even spacing */
+    /* Equal-height, evenly spaced rows: stretch every column in a row
+       to match the tallest sibling so cards/metrics line up cleanly */
     div[data-testid="stHorizontalBlock"] {
-        align-items: flex-start;
+        align-items: stretch !important;
         gap: 1rem;
     }
 
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        display: flex;
+        display: flex !important;
         flex-direction: column;
     }
 
-    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stElementContainer"] {
-        width: 100%;
+    div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+        height: 100%;
     }
 
     /* ---------- INPUTS ---------- */
@@ -145,7 +139,7 @@ st.markdown(
     .stDateInput input {
         border-radius: 8px !important;
         border: 1px solid var(--zc-border) !important;
-        background: var(--zc-surface) !important;
+        background: var(--zc-surface-soft) !important;
         color: var(--zc-ink) !important;
     }
 
@@ -166,25 +160,26 @@ st.markdown(
         margin-bottom: 2px;
     }
 
-    /* ---------- PREDICTION RESULT CARDS (equal height, centered) ---------- */
+    /* ---------- PREDICTION RESULT CARDS ---------- */
 
     .prediction-card {
-        display: flex;
+        display: flex !important;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         text-align: center;
-        background: var(--zc-surface);
-        border: 1px solid var(--zc-border);
+        background: var(--zc-surface) !important;
+        border: 1px solid var(--zc-border) !important;
+        border-top: 3px solid var(--zc-primary) !important;
         border-radius: 12px;
-        padding: 20px;
+        padding: 20px 14px;
         height: 140px;
+        width: 100%;
         box-sizing: border-box;
-        box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
     }
 
     .prediction-label {
-        color: var(--zc-muted);
+        color: var(--zc-muted) !important;
         font-size: 13px;
         font-weight: 600;
         text-transform: uppercase;
@@ -194,34 +189,29 @@ st.markdown(
     }
 
     .prediction-value {
-        font-size: 30px;
+        font-size: 28px;
         font-weight: 800;
-        color: var(--zc-primary-dark);
+        color: var(--zc-primary-dark) !important;
         width: 100%;
+        word-break: break-word;
     }
 
-    /* ---------- LIVE DATA CARDS ---------- */
-
-    .live-card {
-        background: var(--zc-surface);
-        border: 1px solid var(--zc-border);
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-    }
+    /* ---------- LIVE DATA (WEATHER / TRAFFIC) METRIC CARDS ---------- */
 
     div[data-testid="stMetric"] {
-        display: flex;
+        display: flex !important;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         text-align: center;
-        background: var(--zc-page);
-        border: 1px solid var(--zc-border);
+        background: var(--zc-surface-soft) !important;
+        border: 1px solid var(--zc-border) !important;
         border-radius: 10px;
         padding: 12px 8px;
-        height: 88px;
+        min-height: 92px;
+        height: 100%;
         box-sizing: border-box;
+        overflow: hidden;
     }
 
     div[data-testid="stMetricLabel"] {
@@ -237,12 +227,20 @@ st.markdown(
         justify-content: center;
     }
 
+    div[data-testid="stMetricValue"] > div {
+        font-size: 22px !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+        line-height: 1.25 !important;
+        text-align: center !important;
+    }
+
     /* ---------- BUTTONS ---------- */
 
     .stButton > button {
         font-weight: 600;
         border-radius: 8px !important;
-        border: 1px solid var(--zc-border) !important;
     }
 
     .stButton > button[kind="primary"] {
@@ -260,7 +258,6 @@ st.markdown(
     /* ---------- SIDEBAR ---------- */
 
     section[data-testid="stSidebar"] {
-        background: var(--zc-surface);
         border-right: 1px solid var(--zc-border);
     }
 
@@ -271,10 +268,6 @@ st.markdown(
     }
 
     /* ---------- DIVIDER / CAPTION ---------- */
-
-    hr {
-        border-color: var(--zc-border) !important;
-    }
 
     .stCaption, [data-testid="stCaptionContainer"] {
         color: var(--zc-muted) !important;
@@ -1157,52 +1150,20 @@ if st.session_state.get(
     with c1:
 
         st.markdown(
-            '<div class="prediction-card">',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="prediction-label">'
-            "💰 Delivery Charge"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f'<div class="prediction-value">'
-            f'₹{result["delivery_charge"]:.2f}'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            "</div>",
+            '<div class="prediction-card">'
+            '<div class="prediction-label">💰 Delivery Charge</div>'
+            f'<div class="prediction-value">₹{result["delivery_charge"]:.2f}</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
     with c2:
 
         st.markdown(
-            '<div class="prediction-card">',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="prediction-label">'
-            "⏱️ Estimated Delivery Time"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f'<div class="prediction-value">'
-            f'{result["delivery_time_minutes"]:.1f} min'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            "</div>",
+            '<div class="prediction-card">'
+            '<div class="prediction-label">⏱️ Estimated Delivery Time</div>'
+            f'<div class="prediction-value">{result["delivery_time_minutes"]:.1f} min</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -1215,26 +1176,10 @@ if st.session_state.get(
         )
 
         st.markdown(
-            '<div class="prediction-card">',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="prediction-label">'
-            "🛵 Rider Acceptance"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f'<div class="prediction-value">'
-            f'{probability * 100:.1f}%'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            "</div>",
+            '<div class="prediction-card">'
+            '<div class="prediction-label">🛵 Rider Acceptance</div>'
+            f'<div class="prediction-value">{probability * 100:.1f}%</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
