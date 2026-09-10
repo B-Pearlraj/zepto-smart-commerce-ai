@@ -2,6 +2,7 @@ import datetime
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from api_client import APIClient
 
@@ -42,13 +43,12 @@ st.markdown(
 
     :root {
         --zc-primary: #6D28D9;
-        --zc-primary-dark: #5B21B6;
         --zc-accent: #EC4899;
-        --zc-ink: #1E1B2E;
+        --zc-ink: #2A2640;
         --zc-muted: #6B7280;
-        --zc-border: #ECE9F5;
-        --zc-surface: #FFFFFF;
-        --zc-surface-soft: #FAF9FF;
+        --zc-bg: #E9EAF3;
+        --zc-shadow-dark: rgba(163, 168, 200, 0.65);
+        --zc-shadow-light: rgba(255, 255, 255, 0.9);
     }
 
     html, body, [class*="css"] {
@@ -56,20 +56,17 @@ st.markdown(
     }
 
     .stApp {
-        background:
-            radial-gradient(circle at 10% 0%, rgba(109,40,217,0.06), transparent 40%),
-            radial-gradient(circle at 90% 10%, rgba(236,72,153,0.06), transparent 40%),
-            #FBFAFE;
+        background: var(--zc-bg);
     }
 
     /* ---------- HEADER ---------- */
 
     .main-title {
         text-align: center;
-        font-size: 42px;
+        font-size: 40px;
         font-weight: 800;
         letter-spacing: -0.5px;
-        margin-top: 6px;
+        margin-top: 4px;
         margin-bottom: 6px;
         background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%);
         -webkit-background-clip: text;
@@ -82,7 +79,7 @@ st.markdown(
         color: var(--zc-muted);
         font-size: 16px;
         font-weight: 500;
-        margin-bottom: 34px;
+        margin-bottom: 20px;
     }
 
     /* ---------- SECTION TITLES ---------- */
@@ -93,36 +90,49 @@ st.markdown(
         color: var(--zc-ink);
         margin-top: 6px;
         margin-bottom: 14px;
-        padding-left: 12px;
-        border-left: 4px solid var(--zc-primary);
+        padding: 10px 16px;
+        border-radius: 12px;
+        display: inline-block;
+        background: var(--zc-bg);
+        box-shadow:
+            4px 4px 8px var(--zc-shadow-dark),
+            -4px -4px 8px var(--zc-shadow-light);
     }
 
-    /* ---------- CONTAINERS / "CARD" SECTIONS ---------- */
+    /* ---------- RAISED "NEUMORPHIC" CARD SECTIONS ---------- */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--zc-surface);
-        border-radius: 16px !important;
-        border: 1px solid var(--zc-border) !important;
-        box-shadow: 0 4px 20px rgba(109, 40, 217, 0.05);
-        padding: 6px 4px;
-        margin-bottom: 6px;
+        background: var(--zc-bg) !important;
+        border-radius: 22px !important;
+        border: none !important;
+        box-shadow:
+            9px 9px 18px var(--zc-shadow-dark),
+            -9px -9px 18px var(--zc-shadow-light) !important;
+        padding: 10px 6px;
+        margin-bottom: 22px;
     }
 
-    /* ---------- INPUTS ---------- */
+    /* ---------- INPUTS (embossed / pressed-in look) ---------- */
 
     .stTextInput input,
     .stNumberInput input,
     .stSelectbox div[data-baseweb="select"] > div,
     .stDateInput input {
-        border-radius: 10px !important;
-        border: 1px solid var(--zc-border) !important;
-        background: var(--zc-surface-soft) !important;
+        border-radius: 12px !important;
+        border: none !important;
+        background: var(--zc-bg) !important;
+        box-shadow:
+            inset 4px 4px 8px var(--zc-shadow-dark),
+            inset -4px -4px 8px var(--zc-shadow-light) !important;
+        color: var(--zc-ink) !important;
     }
 
     .stTextInput input:focus,
     .stNumberInput input:focus {
-        border-color: var(--zc-primary) !important;
-        box-shadow: 0 0 0 1px var(--zc-primary) !important;
+        box-shadow:
+            inset 3px 3px 6px var(--zc-shadow-dark),
+            inset -3px -3px 6px var(--zc-shadow-light),
+            0 0 0 2px var(--zc-primary) !important;
     }
 
     label, .stMarkdown p strong {
@@ -130,21 +140,25 @@ st.markdown(
         font-weight: 600 !important;
     }
 
-    /* ---------- PREDICTION RESULT CARDS ---------- */
+    /* ---------- PREDICTION RESULT CARDS (raised, 3D) ---------- */
 
     .prediction-card {
-        background: linear-gradient(180deg, var(--zc-surface) 0%, var(--zc-surface-soft) 100%);
-        border: 1px solid var(--zc-border);
-        border-top: 4px solid var(--zc-primary);
-        border-radius: 16px;
+        background: var(--zc-bg);
+        border: none;
+        border-radius: 20px;
         padding: 24px;
         min-height: 145px;
-        box-shadow: 0 6px 24px rgba(109, 40, 217, 0.08);
-        transition: transform 0.15s ease;
+        box-shadow:
+            10px 10px 20px var(--zc-shadow-dark),
+            -10px -10px 20px var(--zc-shadow-light);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
 
     .prediction-card:hover {
-        transform: translateY(-2px);
+        transform: translateY(-3px);
+        box-shadow:
+            13px 13px 24px var(--zc-shadow-dark),
+            -13px -13px 24px var(--zc-shadow-light);
     }
 
     .prediction-label {
@@ -159,24 +173,31 @@ st.markdown(
     .prediction-value {
         font-size: 32px;
         font-weight: 800;
-        color: var(--zc-ink);
+        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
 
     /* ---------- LIVE DATA CARDS ---------- */
 
     .live-card {
-        background: var(--zc-surface);
-        border: 1px solid var(--zc-border);
-        border-radius: 16px;
+        background: var(--zc-bg);
+        border: none;
+        border-radius: 20px;
         padding: 18px;
-        box-shadow: 0 4px 16px rgba(109, 40, 217, 0.05);
+        box-shadow:
+            8px 8px 16px var(--zc-shadow-dark),
+            -8px -8px 16px var(--zc-shadow-light);
     }
 
     div[data-testid="stMetric"] {
-        background: var(--zc-surface-soft);
-        border: 1px solid var(--zc-border);
-        border-radius: 12px;
-        padding: 12px 14px;
+        background: var(--zc-bg);
+        border-radius: 14px;
+        padding: 14px 16px;
+        box-shadow:
+            inset 4px 4px 8px var(--zc-shadow-dark),
+            inset -4px -4px 8px var(--zc-shadow-light);
     }
 
     div[data-testid="stMetricLabel"] {
@@ -188,47 +209,66 @@ st.markdown(
         font-weight: 700 !important;
     }
 
-    /* ---------- BUTTONS ---------- */
+    /* ---------- BUTTONS (raised, press-down on click) ---------- */
 
     .stButton > button {
         font-weight: 700;
-        border-radius: 12px !important;
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
+        border-radius: 14px !important;
+        border: none !important;
+        background: var(--zc-bg) !important;
+        color: var(--zc-ink) !important;
+        box-shadow:
+            6px 6px 12px var(--zc-shadow-dark),
+            -6px -6px 12px var(--zc-shadow-light) !important;
+        transition: all 0.12s ease;
     }
 
-    .stButton > button:hover {
-        transform: translateY(-1px);
+    .stButton > button:active {
+        box-shadow:
+            inset 4px 4px 8px var(--zc-shadow-dark),
+            inset -4px -4px 8px var(--zc-shadow-light) !important;
+        transform: translateY(1px);
     }
 
     .stButton > button[kind="primary"] {
-        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%) !important;
+        background: linear-gradient(145deg, var(--zc-primary) 0%, var(--zc-accent) 100%) !important;
+        color: white !important;
         border: none !important;
-        box-shadow: 0 8px 20px rgba(109, 40, 217, 0.25);
+        box-shadow:
+            8px 8px 18px rgba(109, 40, 217, 0.35),
+            -6px -6px 14px rgba(255, 255, 255, 0.6) !important;
         font-size: 16px;
-        padding: 0.6em 0;
+        padding: 0.65em 0;
     }
 
-    .stButton > button[kind="primary"]:hover {
-        box-shadow: 0 10px 26px rgba(109, 40, 217, 0.35);
+    .stButton > button[kind="primary"]:active {
+        box-shadow: inset 4px 4px 10px rgba(0,0,0,0.25) !important;
+        transform: translateY(1px);
     }
 
     /* ---------- SIDEBAR ---------- */
 
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #F5F2FE 0%, #FBFAFE 100%);
-        border-right: 1px solid var(--zc-border);
+        background: var(--zc-bg);
+        box-shadow: 6px 0 16px var(--zc-shadow-dark);
     }
 
     /* ---------- ALERTS / INFO BOXES ---------- */
 
     div[data-testid="stAlertContainer"] {
-        border-radius: 12px !important;
+        border-radius: 14px !important;
+        box-shadow:
+            5px 5px 10px var(--zc-shadow-dark),
+            -5px -5px 10px var(--zc-shadow-light) !important;
+        border: none !important;
     }
 
     /* ---------- DIVIDER ---------- */
 
     hr {
-        border-color: var(--zc-border) !important;
+        border: none !important;
+        height: 2px !important;
+        background: linear-gradient(90deg, transparent, var(--zc-shadow-dark), transparent) !important;
     }
 
     /* ---------- CAPTION / FOOTER ---------- */
@@ -237,10 +277,120 @@ st.markdown(
         color: var(--zc-muted) !important;
     }
 
+    /* ---------- 3D HERO CANVAS WRAPPER ---------- */
+
+    .hero-3d-wrap {
+        display: flex;
+        justify-content: center;
+        margin-bottom: -10px;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ============================================================
+# 3D HERO GRAPHIC (Three.js — rotating delivery package)
+# ============================================================
+
+def render_3d_hero():
+    components.html(
+        """
+        <div style="display:flex;justify-content:center;align-items:center;
+                    background:transparent;overflow:visible;">
+          <canvas id="zc3d" width="260" height="220"
+                  style="background:transparent;"></canvas>
+        </div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script>
+        (function () {
+            const canvas = document.getElementById('zc3d');
+            const renderer = new THREE.WebGLRenderer({
+                canvas: canvas, alpha: true, antialias: true
+            });
+            renderer.setSize(260, 220, false);
+            renderer.setPixelRatio(window.devicePixelRatio || 1);
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(40, 260 / 220, 0.1, 100);
+            camera.position.set(0, 1.4, 6.2);
+            camera.lookAt(0, 0, 0);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+            const pLight1 = new THREE.PointLight(0x6D28D9, 2.2, 20);
+            pLight1.position.set(-3, 3, 4);
+            scene.add(pLight1);
+            const pLight2 = new THREE.PointLight(0xEC4899, 2.2, 20);
+            pLight2.position.set(3, -2, 3);
+            scene.add(pLight2);
+            const dLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dLight.position.set(2, 4, 5);
+            scene.add(dLight);
+
+            // Group: delivery package (box + ribbon cross)
+            const group = new THREE.Group();
+
+            const boxGeo = new THREE.BoxGeometry(2.1, 2.1, 2.1);
+            const boxMat = new THREE.MeshStandardMaterial({
+                color: 0x8B5CF6, metalness: 0.35, roughness: 0.35
+            });
+            const box = new THREE.Mesh(boxGeo, boxMat);
+            group.add(box);
+
+            const ribbonMat = new THREE.MeshStandardMaterial({
+                color: 0xEC4899, metalness: 0.4, roughness: 0.3
+            });
+
+            const ribbonV = new THREE.Mesh(
+                new THREE.BoxGeometry(0.32, 2.16, 2.16), ribbonMat
+            );
+            group.add(ribbonV);
+
+            const ribbonH = new THREE.Mesh(
+                new THREE.BoxGeometry(2.16, 0.32, 2.16), ribbonMat
+            );
+            group.add(ribbonH);
+
+            const bowGeo = new THREE.TorusKnotGeometry(0.32, 0.11, 80, 12, 2, 3);
+            const bowMat = new THREE.MeshStandardMaterial({
+                color: 0xF9A8D4, metalness: 0.5, roughness: 0.25
+            });
+            const bow = new THREE.Mesh(bowGeo, bowMat);
+            bow.position.set(0, 1.25, 0);
+            bow.scale.set(0.9, 0.9, 0.9);
+            group.add(bow);
+
+            group.rotation.x = 0.35;
+            scene.add(group);
+
+            // Soft floor shadow disc
+            const discGeo = new THREE.CircleGeometry(1.6, 48);
+            const discMat = new THREE.MeshBasicMaterial({
+                color: 0x000000, transparent: true, opacity: 0.10
+            });
+            const disc = new THREE.Mesh(discGeo, discMat);
+            disc.rotation.x = -Math.PI / 2;
+            disc.position.y = -1.55;
+            scene.add(disc);
+
+            let t = 0;
+            function animate() {
+                requestAnimationFrame(animate);
+                t += 0.01;
+                group.rotation.y += 0.012;
+                group.position.y = Math.sin(t) * 0.12;
+                bow.rotation.y += 0.02;
+                renderer.render(scene, camera);
+            }
+            animate();
+        })();
+        </script>
+        """,
+        height=220,
+    )
 
 
 # ============================================================
@@ -314,6 +464,8 @@ def reset_prediction():
 # ============================================================
 # HEADER
 # ============================================================
+
+render_3d_hero()
 
 st.markdown(
     '<div class="main-title">🛵 Zepto Smart Commerce AI</div>',
@@ -1383,7 +1535,7 @@ st.caption(
     "Zepto Smart Commerce AI Platform • "
     "HGB-v1 • Live OpenWeather • Live TomTom Traffic • PostgreSQL"
 )
-st.markdown("---")
+
 st.markdown(
     "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
     unsafe_allow_html=True
