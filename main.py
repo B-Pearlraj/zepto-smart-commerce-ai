@@ -15,6 +15,7 @@ import math
 import logging
 import time
 from datetime import datetime, timezone
+from inference import production_predict_order
 
 # ----------------------------------------------------------------------
 # PostgreSQL repository
