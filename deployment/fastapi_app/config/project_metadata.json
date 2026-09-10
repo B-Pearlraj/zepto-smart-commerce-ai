@@ -1,0 +1,21 @@
+{
+    "project": "Zepto Smart Commerce AI Platform",
+    "module": "ML Delivery Intelligence Engine",
+    "production_model": "HGB-v1",
+    "api_version": "1.0.0",
+    "models": [
+        "Delivery Charge Prediction",
+        "Delivery Time Prediction",
+        "Rider Acceptance Prediction"
+    ],
+    "feature_counts": {
+        "delivery_charge": 36,
+        "delivery_time": 38,
+        "rider_acceptance": 39
+    },
+    "processed_dimensions": {
+        "delivery_charge": 291,
+        "delivery_time": 292,
+        "rider_acceptance": 294
+    }
+}

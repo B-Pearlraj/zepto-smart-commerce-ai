@@ -1,0 +1,15 @@
+{
+    "application": "Zepto Smart Commerce AI API",
+    "module": "ML Delivery Intelligence Engine",
+    "model_version": "HGB-v1",
+    "model_family": "HistGradientBoosting",
+    "api_version": "1.0.0",
+    "environment": "production",
+    "models": {
+        "delivery_charge": "models/delivery_charge_complete_package.joblib",
+        "delivery_time": "models/delivery_time_complete_package.joblib",
+        "rider_acceptance": "models/rider_acceptance_complete_package.joblib"
+    },
+    "feature_configuration": "config/production_feature_configuration.json",
+    "model_metadata": "config/production_model_metadata.json"
+}
