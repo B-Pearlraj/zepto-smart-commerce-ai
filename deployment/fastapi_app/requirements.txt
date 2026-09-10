@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+pandas==2.2.3
+numpy==2.5.3
+scikit-learn==1.6.1
+joblib
+scipy
+requests==2.31.0
+python-dotenv
+psycopg[binary]
