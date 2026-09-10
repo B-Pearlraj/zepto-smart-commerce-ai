@@ -1,0 +1,48 @@
+{
+    "project": "Zepto Smart Commerce AI Platform",
+    "module": "ML Delivery Intelligence Engine",
+    "production_model_version": "HGB-v1",
+    "model_family": "HistGradientBoosting",
+    "created_at_utc": "2026-09-07T15:16:40.357790+00:00",
+    "random_state": 42,
+    "training_rows": 64849,
+    "test_rows": 16213,
+    "dataset_shape": [
+        81062,
+        56
+    ],
+    "models": {
+        "delivery_charge": {
+            "model_class": "HistGradientBoostingRegressor",
+            "target": "delivery_charge",
+            "feature_count": 36,
+            "numeric_feature_count": 24,
+            "categorical_feature_count": 12,
+            "processed_input_dimension": 291
+        },
+        "delivery_time": {
+            "model_class": "HistGradientBoostingRegressor",
+            "target": "delivery_time_minutes",
+            "feature_count": 38,
+            "numeric_feature_count": 26,
+            "categorical_feature_count": 12,
+            "processed_input_dimension": 292
+        },
+        "rider_acceptance": {
+            "model_class": "HistGradientBoostingClassifier",
+            "target": "rider_accepted",
+            "feature_count": 39,
+            "numeric_feature_count": 27,
+            "categorical_feature_count": 12,
+            "processed_input_dimension": 294
+        }
+    },
+    "model_hyperparameters": {
+        "max_iter": 200,
+        "learning_rate": 0.08,
+        "max_leaf_nodes": 31,
+        "l2_regularization": 1.0,
+        "random_state": 42
+    },
+    "retraining_performed": false
+}
