@@ -38,56 +38,203 @@ st.markdown(
     """
     <style>
 
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    :root {
+        --zc-primary: #6D28D9;
+        --zc-primary-dark: #5B21B6;
+        --zc-accent: #EC4899;
+        --zc-ink: #1E1B2E;
+        --zc-muted: #6B7280;
+        --zc-border: #ECE9F5;
+        --zc-surface: #FFFFFF;
+        --zc-surface-soft: #FAF9FF;
+    }
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, sans-serif;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at 10% 0%, rgba(109,40,217,0.06), transparent 40%),
+            radial-gradient(circle at 90% 10%, rgba(236,72,153,0.06), transparent 40%),
+            #FBFAFE;
+    }
+
+    /* ---------- HEADER ---------- */
+
     .main-title {
         text-align: center;
-        font-size: 36px;
-        font-weight: 700;
-        margin-top: 10px;
-        margin-bottom: 5px;
+        font-size: 42px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
 
     .subtitle {
         text-align: center;
-        color: #666666;
-        font-size: 17px;
-        margin-bottom: 30px;
+        color: var(--zc-muted);
+        font-size: 16px;
+        font-weight: 500;
+        margin-bottom: 34px;
     }
+
+    /* ---------- SECTION TITLES ---------- */
 
     .section-title {
-        font-size: 22px;
-        font-weight: 650;
-        margin-top: 10px;
-        margin-bottom: 10px;
+        font-size: 19px;
+        font-weight: 700;
+        color: var(--zc-ink);
+        margin-top: 6px;
+        margin-bottom: 14px;
+        padding-left: 12px;
+        border-left: 4px solid var(--zc-primary);
     }
 
+    /* ---------- CONTAINERS / "CARD" SECTIONS ---------- */
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--zc-surface);
+        border-radius: 16px !important;
+        border: 1px solid var(--zc-border) !important;
+        box-shadow: 0 4px 20px rgba(109, 40, 217, 0.05);
+        padding: 6px 4px;
+        margin-bottom: 6px;
+    }
+
+    /* ---------- INPUTS ---------- */
+
+    .stTextInput input,
+    .stNumberInput input,
+    .stSelectbox div[data-baseweb="select"] > div,
+    .stDateInput input {
+        border-radius: 10px !important;
+        border: 1px solid var(--zc-border) !important;
+        background: var(--zc-surface-soft) !important;
+    }
+
+    .stTextInput input:focus,
+    .stNumberInput input:focus {
+        border-color: var(--zc-primary) !important;
+        box-shadow: 0 0 0 1px var(--zc-primary) !important;
+    }
+
+    label, .stMarkdown p strong {
+        color: var(--zc-ink) !important;
+        font-weight: 600 !important;
+    }
+
+    /* ---------- PREDICTION RESULT CARDS ---------- */
+
     .prediction-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        padding: 22px;
+        background: linear-gradient(180deg, var(--zc-surface) 0%, var(--zc-surface-soft) 100%);
+        border: 1px solid var(--zc-border);
+        border-top: 4px solid var(--zc-primary);
+        border-radius: 16px;
+        padding: 24px;
         min-height: 145px;
+        box-shadow: 0 6px 24px rgba(109, 40, 217, 0.08);
+        transition: transform 0.15s ease;
+    }
+
+    .prediction-card:hover {
+        transform: translateY(-2px);
     }
 
     .prediction-label {
-        color: #666666;
-        font-size: 14px;
-        margin-bottom: 5px;
+        color: var(--zc-muted);
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-bottom: 8px;
     }
 
     .prediction-value {
-        font-size: 30px;
-        font-weight: 700;
+        font-size: 32px;
+        font-weight: 800;
+        color: var(--zc-ink);
     }
+
+    /* ---------- LIVE DATA CARDS ---------- */
 
     .live-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
+        background: var(--zc-surface);
+        border: 1px solid var(--zc-border);
+        border-radius: 16px;
         padding: 18px;
+        box-shadow: 0 4px 16px rgba(109, 40, 217, 0.05);
     }
 
+    div[data-testid="stMetric"] {
+        background: var(--zc-surface-soft);
+        border: 1px solid var(--zc-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: var(--zc-muted) !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: var(--zc-ink) !important;
+        font-weight: 700 !important;
+    }
+
+    /* ---------- BUTTONS ---------- */
+
     .stButton > button {
-        font-weight: 650;
+        font-weight: 700;
+        border-radius: 12px !important;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-1px);
+    }
+
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(90deg, var(--zc-primary) 0%, var(--zc-accent) 100%) !important;
+        border: none !important;
+        box-shadow: 0 8px 20px rgba(109, 40, 217, 0.25);
+        font-size: 16px;
+        padding: 0.6em 0;
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        box-shadow: 0 10px 26px rgba(109, 40, 217, 0.35);
+    }
+
+    /* ---------- SIDEBAR ---------- */
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #F5F2FE 0%, #FBFAFE 100%);
+        border-right: 1px solid var(--zc-border);
+    }
+
+    /* ---------- ALERTS / INFO BOXES ---------- */
+
+    div[data-testid="stAlertContainer"] {
+        border-radius: 12px !important;
+    }
+
+    /* ---------- DIVIDER ---------- */
+
+    hr {
+        border-color: var(--zc-border) !important;
+    }
+
+    /* ---------- CAPTION / FOOTER ---------- */
+
+    .stCaption, [data-testid="stCaptionContainer"] {
+        color: var(--zc-muted) !important;
     }
 
     </style>
