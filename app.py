@@ -12,7 +12,7 @@ from api_client import APIClient
 
 st.set_page_config(
     page_title="Zepto Smart Commerce AI",
-    page_icon="🛵",
+    page_icon="Logo-PTS.png",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -1382,4 +1382,9 @@ st.markdown("---")
 st.caption(
     "Zepto Smart Commerce AI Platform • "
     "HGB-v1 • Live OpenWeather • Live TomTom Traffic • PostgreSQL"
+)
+st.markdown("---")
+st.markdown(
+    "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
+    unsafe_allow_html=True
 )
