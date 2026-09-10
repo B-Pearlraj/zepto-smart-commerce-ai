@@ -9,3 +9,8 @@ scipy
 requests==2.31.0
 python-dotenv
 psycopg[binary]
+streamlit>=1.42,<2
+requests==2.31.0
+python-dotenv
+pandas==2.2.3
+numpy==2.5.3
