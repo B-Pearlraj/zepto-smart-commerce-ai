@@ -819,8 +819,8 @@ if not st.session_state.messages:
         '<div class="welcome-wrap">'
         '<div class="brand-circle lg">⚡</div>'
         '<div class="welcome-title">Look up an order to get started</div>'
-        '<div class="welcome-sub">Type an order ID — e.g. '
-        "<code>ORD1001</code> — and I'll show you that order's details. "
+        '<div class="welcome-sub">Type an order ID - '
+        "<code>ORDXXXX</code> — and I'll show you that order's details. "
         "Then just type <code>confirm</code> and I'll run the delivery "
         "charge, ETA & rider-acceptance prediction for it.</div>"
         "</div>",
