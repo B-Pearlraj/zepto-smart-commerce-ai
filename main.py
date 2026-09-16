@@ -24,9 +24,6 @@ from database_repository import (
     save_prediction,
     count_predictions,
     get_recent_predictions,
-    get_order_by_id,
-    list_order_ids,
-    count_orders,
 )
 
 # ----------------------------------------------------------------------
@@ -84,40 +81,6 @@ app = FastAPI(
     description=API_DESCRIPTION,
     version=API_VERSION,
 )
-
-
-# ======================================================================
-# STARTUP: SANITY-CHECK THE ORDERS TABLE
-# ======================================================================
-@app.on_event("startup")
-def check_orders_table():
-    """
-    The `orders` table itself is created by create_orders_table.py
-    and populated by load_orders_to_postgres.py (run those as a
-    deployment/setup step, not on every app start). This just logs
-    how many orders are currently available, so an empty table is
-    obvious in the logs rather than a silent surprise on first lookup.
-    """
-
-    try:
-        order_count = count_orders()
-
-        if order_count == 0:
-            logger.warning(
-                "Orders table is empty. Run create_orders_table.py and "
-                "load_orders_to_postgres.py to load order data."
-            )
-        else:
-            logger.info(
-                "Orders table ready | order_count=%s",
-                order_count,
-            )
-
-    except Exception as exc:
-        logger.exception(
-            "Could not check the orders table on startup: %s",
-            str(exc),
-        )
 
 # ======================================================================
 # HTTP REQUEST LOGGING MIDDLEWARE
@@ -253,79 +216,6 @@ def health_check():
             status_code=503,
             detail=str(exc),
         )
-
-# ======================================================================
-# ORDER LOOKUP ENDPOINTS
-# ======================================================================
-@app.get("/orders")
-def list_orders(limit: int = 5):
-    """
-    Return the most recently loaded order IDs.
-
-    Used by the chatbot UI to show a few real example order IDs
-    the user can try.
-    """
-
-    try:
-        if limit < 1:
-            raise ValueError("limit must be greater than zero.")
-
-        if limit > 50:
-            raise ValueError("limit must not exceed 50.")
-
-        order_ids = list_order_ids(limit)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    except Exception as exc:
-        logger.exception("Order ID listing failed: %s", str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    return {
-        "status": "success",
-        "count": len(order_ids),
-        "order_ids": order_ids,
-    }
-
-
-@app.get("/orders/{order_id}")
-def get_order(order_id: str):
-    """
-    Look up a single order by order_id.
-
-    Used by the chatbot's "type an order ID -> see the order's
-    details -> confirm -> predict" flow. Returns the order's
-    customer/product info plus the full ML feature set stored
-    for that order.
-    """
-
-    try:
-        order = get_order_by_id(order_id)
-
-    except Exception as exc:
-        logger.exception(
-            "Order lookup failed | order_id=%s | error=%s",
-            order_id,
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        )
-
-    if order is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No order found with ID '{order_id}'.",
-        )
-
-    return {
-        "status": "success",
-        "order": order,
-    }
-
 
 # ======================================================================
 # PREDICTION ENDPOINT

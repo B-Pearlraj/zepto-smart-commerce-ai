@@ -30,27 +30,10 @@ API_BASE_URL = os.getenv(
 api = APIClient(API_BASE_URL)
 
 
-def get_sample_order_ids(limit: int = 5):
-    """
-    Fetch a handful of real order IDs from the database to show
-    as examples in the UI. Cached for the session; returns an
-    empty list if the API/DB isn't reachable, so the UI can fall
-    back to generic copy instead of erroring.
-    """
-
-    if "sample_order_ids" not in st.session_state:
-        try:
-            st.session_state.sample_order_ids = api.list_orders(limit=limit)
-        except Exception:
-            st.session_state.sample_order_ids = []
-
-    return st.session_state.sample_order_ids
-
-
 # ============================================================
-# FIELD DEFAULTS  (the full ML feature set. When an order is
-# looked up, its stored values overwrite these defaults; any
-# field an order doesn't have falls back to the value below.)
+# FIELD DEFAULTS  (the starting feature set — every field the
+# model needs. Chat edits only ever touch a subset of these;
+# everything else carries forward from the last turn.)
 # ============================================================
 
 DEFAULT_PAYLOAD = {
@@ -104,6 +87,8 @@ DEFAULT_PAYLOAD = {
     "demand_level": "medium",
     "festival_day_flag": 0,
 }
+
+EXAMPLE_BLOCK = "\n".join(f"{k}: {v}" for k, v in DEFAULT_PAYLOAD.items())
 
 
 # ============================================================
@@ -364,17 +349,18 @@ def coerce_value(raw: str):
         return raw
 
 
-def parse_feature_edits(text: str) -> dict:
+def parse_feature_block(text: str) -> dict:
     """
-    Parses short chat-style field edits such as:
+    Accepts either a full multi-line feature block or a short
+    chat-style edit such as:
         distance_km: 5, order_amount: 900
         rider_rating = 3.2
     Only known feature keys are extracted; free-text is ignored.
-    Used to let a user tweak a looked-up order before confirming.
     """
 
     parsed = {}
 
+    # split on newlines AND commas so "a: 1, b: 2" on one line also works
     fragments = []
     for line in text.strip().splitlines():
         fragments.extend(line.split(","))
@@ -400,156 +386,61 @@ def format_optional(value):
 
 
 # ============================================================
-# WORDS THAT MOVE THE CONVERSATION STATE MACHINE
-# ============================================================
-
-CONFIRM_WORDS = {"confirm", "yes", "y", "ok", "okay", "go", "predict", "confirmed"}
-CANCEL_WORDS = {"cancel", "no", "n", "stop", "reset"}
-
-
-# ============================================================
-# ORDER LOOKUP
-# ============================================================
-
-def lookup_order(order_id_text: str) -> dict:
-    """
-    Step 1 of the flow: the user has typed an order ID.
-    Look it up via the API and, if found, stage it in session
-    state awaiting confirmation.
-    """
-
-    order_id = order_id_text.strip()
-
-    if not order_id:
-        return {"type": "error", "message": "Please enter an order ID."}
-
-    try:
-        order = api.get_order(order_id)
-    except Exception as exc:
-        return {
-            "type": "error",
-            "message": f"Couldn't reach the order lookup service: {exc}",
-        }
-
-    if order is None:
-        return {"type": "order_not_found", "order_id": order_id}
-
-    # Build the ML feature payload from the order row, falling back
-    # to the platform defaults for anything the order didn't set.
-    payload = dict(DEFAULT_PAYLOAD)
-    for key in DEFAULT_PAYLOAD:
-        if key in order and order[key] is not None:
-            payload[key] = order[key]
-
-    order_record = {"info": order, "payload": payload}
-
-    st.session_state.pending_order = order_record
-    st.session_state.flow_state = "awaiting_confirmation"
-
-    return {"type": "order_found", "order": order_record, "changed": {}}
-
-
-# ============================================================
 # PREDICTION FLOW
 # ============================================================
 
-def run_prediction_for_pending_order() -> dict:
+def run_prediction(user_text: str):
     """
-    Step 2 of the flow: the user confirmed. Run the prediction
-    for whatever order is currently staged in session state.
+    Merges any parsed fields onto the current session feature
+    state, calls the API with the FULL merged payload, then
+    updates the session state so the next message only needs
+    to mention what's changing.
     """
 
-    order_record = st.session_state.pending_order
+    parsed = parse_feature_block(user_text)
 
-    if not order_record:
-        st.session_state.flow_state = "awaiting_order_id"
+    if not parsed:
         return {
-            "type": "error",
-            "message": (
-                "There's no order waiting for confirmation yet. "
-                "Enter an order ID first."
-            ),
+            "error": (
+                "I couldn't find any `key: value` fields in that message. "
+                "Send a full feature block to start, or just the fields "
+                "you want to change, e.g.\n\n`distance_km: 5, order_amount: 900`"
+            )
         }
 
-    payload = order_record["payload"]
+    previous_payload = st.session_state.current_payload
+    changed = {
+        key: (previous_payload.get(key), value)
+        for key, value in parsed.items()
+        if previous_payload.get(key) != value
+    }
+
+    merged_payload = dict(previous_payload)
+    merged_payload.update(parsed)
 
     try:
-        result = api.predict(payload)
+        result = api.predict(merged_payload)
     except Exception as exc:
-        return {"type": "error", "message": f"Prediction failed: {exc}"}
+        return {"error": f"Prediction failed: {exc}"}
 
-    st.session_state.flow_state = "awaiting_order_id"
-    st.session_state.pending_order = None
+    st.session_state.current_payload = merged_payload
 
     return {
-        "type": "prediction",
-        "order_info": order_record["info"],
-        "payload": payload,
+        "payload": merged_payload,
+        "changed": changed,
+        "is_first": previous_payload == DEFAULT_PAYLOAD and len(parsed) > 5,
         "result": result,
     }
 
 
-def handle_user_message(text: str) -> dict:
-    """
-    The chatbot's tiny state machine:
+def render_prediction_message(content: dict):
 
-      awaiting_order_id       -> any text is treated as an order ID
-      awaiting_confirmation   -> "confirm"/"yes" runs the prediction
-                                  "cancel"/"no" drops the staged order
-                                  "key: value" tweaks the staged order
-                                  anything else is treated as a NEW order ID
-    """
-
-    stripped = text.strip()
-    lowered = stripped.lower()
-
-    if st.session_state.flow_state == "awaiting_confirmation":
-
-        if lowered in CONFIRM_WORDS:
-            return run_prediction_for_pending_order()
-
-        if lowered in CANCEL_WORDS:
-            st.session_state.flow_state = "awaiting_order_id"
-            st.session_state.pending_order = None
-            return {"type": "cancelled"}
-
-        edits = parse_feature_edits(stripped)
-
-        if edits:
-            order_record = st.session_state.pending_order
-            payload = order_record["payload"]
-
-            changed = {
-                key: (payload.get(key), value)
-                for key, value in edits.items()
-                if payload.get(key) != value
-            }
-
-            payload.update(edits)
-            order_record["payload"] = payload
-            st.session_state.pending_order = order_record
-
-            return {"type": "order_found", "order": order_record, "changed": changed}
-
-        # Doesn't look like confirm/cancel/an edit -> treat as a new order ID
-        return lookup_order(stripped)
-
-    # awaiting_order_id
-    return lookup_order(stripped)
-
-
-# ============================================================
-# RENDERING
-# ============================================================
-
-def render_order_found(content: dict):
-
-    order_record = content["order"]
-    info = order_record["info"]
+    payload = content["payload"]
+    result = content["result"]
     changed = content.get("changed", {})
 
-    if changed:
-        st.markdown("**Updated fields for this order:**")
+    if changed and not content.get("is_first"):
+        st.markdown("**Updated fields:**")
         for key, (old, new) in changed.items():
             st.markdown(
                 f'<div class="diff-row"><span class="diff-key">{key}</span>: '
@@ -557,89 +448,12 @@ def render_order_found(content: dict):
                 f'<span class="diff-new">{new}</span></div>',
                 unsafe_allow_html=True,
             )
-        st.markdown("Type **confirm** to run the prediction with these updates.")
-        return
-
-    st.markdown(
-        f"Found order **`{info.get('order_id')}`** — "
-        f"{info.get('city', 'N/A')} (store `{info.get('store_id', 'N/A')}`)"
-    )
-    st.markdown(
-        f"📦 {info.get('item_count', 0)} item(s)  •  "
-        f"🚚 {info.get('delivery_zone', 'N/A')} zone  •  "
-        f"🛵 {info.get('vehicle_type', 'N/A')}"
-    )
-
-    st.markdown("")
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
+        st.markdown("Everything else was kept from the last prediction.")
+    else:
         st.markdown(
-            '<div class="result-card">'
-            '<div class="result-label">📏 Distance</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("distance_km", 0):.1f} km</div>'
-            "</div>",
-            unsafe_allow_html=True,
+            f"Got it — using this feature set for **{payload.get('city', 'the order')}** "
+            f"(store `{payload.get('store_id', 'N/A')}`)."
         )
-
-    with c2:
-        st.markdown(
-            '<div class="result-card">'
-            '<div class="result-label">💵 Order Amount</div>'
-            f'<div class="result-value" style="font-size:18px;">₹{info.get("order_amount", 0):.0f}</div>'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-    with c3:
-        st.markdown(
-            '<div class="result-card">'
-            '<div class="result-label">👥 Membership</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("membership_type", "N/A")}</div>'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("")
-
-    with st.expander("📋 Full order & feature details"):
-        st.json(order_record["payload"])
-
-    st.markdown(
-        "Type **confirm** (or **yes**) to run the delivery prediction for this "
-        "order, **cancel** to drop it, or enter a different order ID to look "
-        "up another one. You can also tweak a field first — e.g. `distance_km: 5`."
-    )
-
-
-def render_order_not_found(content: dict):
-    hint = ""
-    sample_ids = get_sample_order_ids()
-    if sample_ids:
-        hint = " Try one of these: " + ", ".join(f"`{oid}`" for oid in sample_ids)
-
-    st.warning(
-        f"No order found with ID `{content['order_id']}`."
-        f"{hint}"
-    )
-
-
-def render_cancelled():
-    st.info("Order cancelled. Enter a new order ID whenever you're ready.")
-
-
-def render_prediction_message(content: dict):
-
-    payload = content["payload"]
-    result = content["result"]
-    info = content.get("order_info", {})
-
-    st.markdown(
-        f"✅ Confirmed — here's the prediction for order "
-        f"**`{info.get('order_id', 'N/A')}`** "
-        f"({info.get('city', 'N/A')}, store `{info.get('store_id', 'N/A')}`)."
-    )
 
     st.markdown("")
 
@@ -735,21 +549,13 @@ def render_prediction_message(content: dict):
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# flow_state drives the mini state machine:
-#   "awaiting_order_id"     -> next message is treated as an order ID
-#   "awaiting_confirmation" -> next message is confirm/cancel/an edit
-if "flow_state" not in st.session_state:
-    st.session_state.flow_state = "awaiting_order_id"
-
-# The order currently staged for confirmation: {"info": {...}, "payload": {...}}
-if "pending_order" not in st.session_state:
-    st.session_state.pending_order = None
+if "current_payload" not in st.session_state:
+    st.session_state.current_payload = dict(DEFAULT_PAYLOAD)
 
 
 def reset_chat():
     st.session_state.messages = []
-    st.session_state.flow_state = "awaiting_order_id"
-    st.session_state.pending_order = None
+    st.session_state.current_payload = dict(DEFAULT_PAYLOAD)
 
 
 # ============================================================
@@ -781,29 +587,16 @@ with st.sidebar:
         st.caption("No conversations yet.")
 
     with st.expander("⚡ Capabilities"):
-        sample_ids = get_sample_order_ids()
-        sample_line = (
-            "- Sample order IDs: **" + ", ".join(sample_ids) + "**\n"
-            if sample_ids
-            else ""
-        )
         st.write(
-            "- Type an **order ID** and I'll pull that order's details\n"
-            "- Review the details, then type **confirm** to run the "
-            "delivery charge, ETA & rider-acceptance prediction\n"
-            "- Not the right order? Type **cancel**, or just enter a "
-            "different order ID\n"
-            "- You can tweak a field before confirming — e.g. `distance_km: 5`\n"
-            "- Live weather & traffic pulled server-side at prediction time\n"
-            + sample_line
+            "- Predicts delivery charge, ETA & rider acceptance\n"
+            "- Paste a full feature block to start\n"
+            "- Then just mention what changed — e.g. `distance_km: 5` — "
+            "and everything else carries forward\n"
+            "- Live weather & traffic pulled server-side"
         )
 
-    if st.session_state.pending_order:
-        with st.expander("📋 Order awaiting confirmation", expanded=True):
-            info = st.session_state.pending_order["info"]
-            st.write(f"**{info.get('order_id')}** — {info.get('city', 'N/A')}")
-            st.caption(f"Store `{info.get('store_id', 'N/A')}` • {info.get('delivery_zone', 'N/A')} zone")
-            st.json(st.session_state.pending_order["payload"])
+    with st.expander("📋 Current feature set"):
+        st.json(st.session_state.current_payload)
 
     with st.expander("⚙️ System Status"):
         try:
@@ -843,41 +636,25 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 if not st.session_state.messages:
 
-    sample_ids = get_sample_order_ids()
-    example_id = sample_ids[0] if sample_ids else "your order ID"
-
     st.markdown(
         '<div class="welcome-wrap">'
         '<div class="brand-circle lg">⚡</div>'
-        '<div class="welcome-title">Look up an order to get started</div>'
-        f'<div class="welcome-sub">Type an order ID — e.g. '
-        f"<code>{example_id}</code> — and I'll show you that order's details. "
-        "Then just type <code>confirm</code> and I'll run the delivery "
-        "charge, ETA & rider-acceptance prediction for it.</div>"
+        '<div class="welcome-title">Start a new prediction</div>'
+        '<div class="welcome-sub">Paste your order\'s full feature block once. '
+        "After that, just tell me what changed — e.g. "
+        "<code>distance_km: 5, order_amount: 900</code> — and I'll re-run the "
+        "prediction using that update plus everything else from before.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
 
-    if sample_ids:
-        with st.expander("See sample order IDs"):
-            st.markdown(
-                '<div class="example-box">'
-                + "\n".join(sample_ids)
-                + "</div>",
-                unsafe_allow_html=True,
-            )
+    with st.expander("See an example feature block"):
+        st.markdown(f'<div class="example-box">{EXAMPLE_BLOCK}</div>', unsafe_allow_html=True)
 
 
 # ============================================================
 # CHAT HISTORY
 # ============================================================
-
-RENDERERS = {
-    "order_found": render_order_found,
-    "order_not_found": render_order_not_found,
-    "cancelled": lambda content: render_cancelled(),
-    "prediction": render_prediction_message,
-}
 
 for message in st.session_state.messages:
 
@@ -886,46 +663,27 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar=avatar):
 
         if message["role"] == "user":
-            st.markdown(message["content"])
-            continue
-
-        content = message["content"]
-        msg_type = content.get("type")
-
-        if msg_type == "error":
-            st.error(content["message"])
-        elif msg_type in RENDERERS:
-            RENDERERS[msg_type](content)
+            st.code(message["content"], language=None)
+        elif message["content"].get("error"):
+            st.error(message["content"]["error"])
         else:
-            st.error("Something went wrong rendering this message.")
+            render_prediction_message(message["content"])
 
 
 # ============================================================
 # CHAT INPUT
 # ============================================================
 
-if st.session_state.flow_state == "awaiting_confirmation":
-    placeholder = "Type 'confirm' to predict, 'cancel' to drop, or a new order ID…"
-else:
-    _sample_ids = get_sample_order_ids()
-    _example = _sample_ids[0] if _sample_ids else "ORD00001"
-    placeholder = f"Enter an order ID, e.g. {_example}…"
-
-prompt = st.chat_input(placeholder)
+prompt = st.chat_input(
+    "Paste a feature block, or just say what changed (e.g. distance_km: 5)…"
+)
 
 if prompt:
 
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    spinner_text = (
-        "🤖 Generating prediction using HGB-v1..."
-        if prompt.strip().lower() in CONFIRM_WORDS
-        and st.session_state.flow_state == "awaiting_confirmation"
-        else "🔎 Looking up order..."
-    )
-
-    with st.spinner(spinner_text):
-        outcome = handle_user_message(prompt)
+    with st.spinner("🤖 Generating prediction using HGB-v1..."):
+        outcome = run_prediction(prompt)
 
     st.session_state.messages.append({"role": "assistant", "content": outcome})
 
