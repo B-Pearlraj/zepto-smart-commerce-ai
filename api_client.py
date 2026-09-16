@@ -14,6 +14,22 @@ class APIClient:
         response.raise_for_status()
         return response.json()
 
+    def get_order(self, order_id: str):
+        """
+        Look up an order by ID. Returns the order dict on success,
+        or None if no order with that ID exists (HTTP 404).
+        """
+        response = requests.get(
+            f"{self.base_url}/orders/{order_id}",
+            timeout=15
+        )
+
+        if response.status_code == 404:
+            return None
+
+        response.raise_for_status()
+        return response.json()["order"]
+
     def predict(self, payload: dict):
         response = requests.post(
             f"{self.base_url}/predict",
