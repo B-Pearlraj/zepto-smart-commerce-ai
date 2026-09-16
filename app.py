@@ -585,9 +585,6 @@ def render_order_found(content: dict):
 
     st.markdown("")
 
-    with st.expander("📋 Full order & feature details"):
-        st.json(order_record["payload"])
-
     st.markdown(
         "Type **confirm** (or **yes**) to run the delivery prediction for this "
         "order, **cancel** to drop it, or enter a different order ID to look "
@@ -697,13 +694,7 @@ def render_prediction_message(content: dict):
         with tc3:
             st.metric("Current Speed", f"{traffic.get('current_speed_kmh', 0):.1f} km/h")
 
-    with st.expander("📋 Full feature set used"):
-        st.json(payload)
-
-    st.caption(
-        f"Model: **{result.get('model_version', 'HGB-v1')}** • "
-        "Live weather/traffic applied server-side • logged to PostgreSQL."
-    )
+    st.caption("Powered by real-time weather and traffic data.")
 
 
 # ============================================================
@@ -773,20 +764,16 @@ with st.sidebar:
     if st.session_state.pending_order:
         with st.expander("📋 Order awaiting confirmation", expanded=True):
             info = st.session_state.pending_order["info"]
+            payload = st.session_state.pending_order["payload"]
             st.write(f"**{info.get('order_id')}** — {info.get('customer_name', 'N/A')}")
             st.caption(info.get("product_name", ""))
-            st.json(st.session_state.pending_order["payload"])
+            st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
 
-    with st.expander("⚙️ System Status"):
-        try:
-            health = api.health_check()
-            st.success("FastAPI Connected")
-            st.write(f"**Model:** {health.get('model_version', 'N/A')}")
-            st.write(f"**Weather:** {health.get('weather_provider', 'N/A')}")
-            st.write(f"**Traffic:** {health.get('traffic_provider', 'N/A')}")
-        except Exception as exc:
-            st.error("FastAPI is not connected.")
-            st.caption(str(exc))
+    try:
+        api.health_check()
+        st.success("🟢 Service online")
+    except Exception:
+        st.error("🔴 Service unavailable — please try again shortly.")
 
     if st.button("🗑 Clear current chat", use_container_width=True):
         reset_chat()
