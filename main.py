@@ -24,6 +24,9 @@ from database_repository import (
     save_prediction,
     count_predictions,
     get_recent_predictions,
+    ensure_orders_table,
+    seed_sample_orders,
+    get_order_by_id,
 )
 
 # ----------------------------------------------------------------------
@@ -81,6 +84,33 @@ app = FastAPI(
     description=API_DESCRIPTION,
     version=API_VERSION,
 )
+
+
+# ======================================================================
+# STARTUP: ENSURE ORDERS TABLE EXISTS + SEEDED
+# ======================================================================
+@app.on_event("startup")
+def setup_orders_table():
+    """
+    Create the `orders` lookup table if it doesn't exist yet and
+    seed it with sample orders (ORD1001 - ORD1010). Both steps are
+    idempotent, so this is safe to run on every restart.
+    """
+
+    try:
+        ensure_orders_table()
+        newly_seeded = seed_sample_orders()
+
+        logger.info(
+            "Orders table ready | newly_seeded=%s",
+            newly_seeded,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Orders table setup failed: %s",
+            str(exc),
+        )
 
 # ======================================================================
 # HTTP REQUEST LOGGING MIDDLEWARE
@@ -216,6 +246,47 @@ def health_check():
             status_code=503,
             detail=str(exc),
         )
+
+# ======================================================================
+# ORDER LOOKUP ENDPOINT
+# ======================================================================
+@app.get("/orders/{order_id}")
+def get_order(order_id: str):
+    """
+    Look up a single order by order_id.
+
+    Used by the chatbot's "type an order ID -> see the order's
+    details -> confirm -> predict" flow. Returns the order's
+    customer/product info plus the full ML feature set stored
+    for that order.
+    """
+
+    try:
+        order = get_order_by_id(order_id)
+
+    except Exception as exc:
+        logger.exception(
+            "Order lookup failed | order_id=%s | error=%s",
+            order_id,
+            str(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No order found with ID '{order_id}'.",
+        )
+
+    return {
+        "status": "success",
+        "order": order,
+    }
+
 
 # ======================================================================
 # PREDICTION ENDPOINT
