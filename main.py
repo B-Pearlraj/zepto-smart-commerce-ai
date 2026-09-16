@@ -24,9 +24,9 @@ from database_repository import (
     save_prediction,
     count_predictions,
     get_recent_predictions,
-    ensure_orders_table,
-    seed_sample_orders,
     get_order_by_id,
+    list_order_ids,
+    count_orders,
 )
 
 # ----------------------------------------------------------------------
@@ -87,28 +87,35 @@ app = FastAPI(
 
 
 # ======================================================================
-# STARTUP: ENSURE ORDERS TABLE EXISTS + SEEDED
+# STARTUP: SANITY-CHECK THE ORDERS TABLE
 # ======================================================================
 @app.on_event("startup")
-def setup_orders_table():
+def check_orders_table():
     """
-    Create the `orders` lookup table if it doesn't exist yet and
-    seed it with sample orders (ORD1001 - ORD1010). Both steps are
-    idempotent, so this is safe to run on every restart.
+    The `orders` table itself is created by create_orders_table.py
+    and populated by load_orders_to_postgres.py (run those as a
+    deployment/setup step, not on every app start). This just logs
+    how many orders are currently available, so an empty table is
+    obvious in the logs rather than a silent surprise on first lookup.
     """
 
     try:
-        ensure_orders_table()
-        newly_seeded = seed_sample_orders()
+        order_count = count_orders()
 
-        logger.info(
-            "Orders table ready | newly_seeded=%s",
-            newly_seeded,
-        )
+        if order_count == 0:
+            logger.warning(
+                "Orders table is empty. Run create_orders_table.py and "
+                "load_orders_to_postgres.py to load order data."
+            )
+        else:
+            logger.info(
+                "Orders table ready | order_count=%s",
+                order_count,
+            )
 
     except Exception as exc:
         logger.exception(
-            "Orders table setup failed: %s",
+            "Could not check the orders table on startup: %s",
             str(exc),
         )
 
@@ -248,8 +255,40 @@ def health_check():
         )
 
 # ======================================================================
-# ORDER LOOKUP ENDPOINT
+# ORDER LOOKUP ENDPOINTS
 # ======================================================================
+@app.get("/orders")
+def list_orders(limit: int = 5):
+    """
+    Return the most recently loaded order IDs.
+
+    Used by the chatbot UI to show a few real example order IDs
+    the user can try.
+    """
+
+    try:
+        if limit < 1:
+            raise ValueError("limit must be greater than zero.")
+
+        if limit > 50:
+            raise ValueError("limit must not exceed 50.")
+
+        order_ids = list_order_ids(limit)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    except Exception as exc:
+        logger.exception("Order ID listing failed: %s", str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "status": "success",
+        "count": len(order_ids),
+        "order_ids": order_ids,
+    }
+
+
 @app.get("/orders/{order_id}")
 def get_order(order_id: str):
     """

@@ -30,6 +30,23 @@ API_BASE_URL = os.getenv(
 api = APIClient(API_BASE_URL)
 
 
+def get_sample_order_ids(limit: int = 5):
+    """
+    Fetch a handful of real order IDs from the database to show
+    as examples in the UI. Cached for the session; returns an
+    empty list if the API/DB isn't reachable, so the UI can fall
+    back to generic copy instead of erroring.
+    """
+
+    if "sample_order_ids" not in st.session_state:
+        try:
+            st.session_state.sample_order_ids = api.list_orders(limit=limit)
+        except Exception:
+            st.session_state.sample_order_ids = []
+
+    return st.session_state.sample_order_ids
+
+
 # ============================================================
 # FIELD DEFAULTS  (the full ML feature set. When an order is
 # looked up, its stored values overwrite these defaults; any
@@ -450,7 +467,7 @@ def run_prediction_for_pending_order() -> dict:
             "type": "error",
             "message": (
                 "There's no order waiting for confirmation yet. "
-                "Enter an order ID first, e.g. `ORD1001`."
+                "Enter an order ID first."
             ),
         }
 
@@ -545,11 +562,12 @@ def render_order_found(content: dict):
 
     st.markdown(
         f"Found order **`{info.get('order_id')}`** — "
-        f"{info.get('customer_name', 'N/A')}"
+        f"{info.get('city', 'N/A')} (store `{info.get('store_id', 'N/A')}`)"
     )
     st.markdown(
-        f"🛒 {info.get('product_name', 'N/A')}  •  "
-        f"Status: `{info.get('order_status', 'N/A')}`"
+        f"📦 {info.get('item_count', 0)} item(s)  •  "
+        f"🚚 {info.get('delivery_zone', 'N/A')} zone  •  "
+        f"🛵 {info.get('vehicle_type', 'N/A')}"
     )
 
     st.markdown("")
@@ -559,8 +577,8 @@ def render_order_found(content: dict):
     with c1:
         st.markdown(
             '<div class="result-card">'
-            '<div class="result-label">📍 City</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("city", "N/A")}</div>'
+            '<div class="result-label">📏 Distance</div>'
+            f'<div class="result-value" style="font-size:18px;">{info.get("distance_km", 0):.1f} km</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -568,8 +586,8 @@ def render_order_found(content: dict):
     with c2:
         st.markdown(
             '<div class="result-card">'
-            '<div class="result-label">📏 Distance</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("distance_km", 0):.1f} km</div>'
+            '<div class="result-label">💵 Order Amount</div>'
+            f'<div class="result-value" style="font-size:18px;">₹{info.get("order_amount", 0):.0f}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -577,8 +595,8 @@ def render_order_found(content: dict):
     with c3:
         st.markdown(
             '<div class="result-card">'
-            '<div class="result-label">💵 Order Amount</div>'
-            f'<div class="result-value" style="font-size:18px;">₹{info.get("order_amount", 0):.0f}</div>'
+            '<div class="result-label">👥 Membership</div>'
+            f'<div class="result-value" style="font-size:18px;">{info.get("membership_type", "N/A")}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -596,10 +614,14 @@ def render_order_found(content: dict):
 
 
 def render_order_not_found(content: dict):
+    hint = ""
+    sample_ids = get_sample_order_ids()
+    if sample_ids:
+        hint = " Try one of these: " + ", ".join(f"`{oid}`" for oid in sample_ids)
+
     st.warning(
-        f"No order found with ID `{content['order_id']}`. "
-        "Double-check the ID, or try one of the sample orders "
-        "**ORD1001 – ORD1010**."
+        f"No order found with ID `{content['order_id']}`."
+        f"{hint}"
     )
 
 
@@ -616,7 +638,7 @@ def render_prediction_message(content: dict):
     st.markdown(
         f"✅ Confirmed — here's the prediction for order "
         f"**`{info.get('order_id', 'N/A')}`** "
-        f"({info.get('customer_name', 'N/A')}, {info.get('product_name', 'N/A')})."
+        f"({info.get('city', 'N/A')}, store `{info.get('store_id', 'N/A')}`)."
     )
 
     st.markdown("")
@@ -759,6 +781,12 @@ with st.sidebar:
         st.caption("No conversations yet.")
 
     with st.expander("⚡ Capabilities"):
+        sample_ids = get_sample_order_ids()
+        sample_line = (
+            "- Sample order IDs: **" + ", ".join(sample_ids) + "**\n"
+            if sample_ids
+            else ""
+        )
         st.write(
             "- Type an **order ID** and I'll pull that order's details\n"
             "- Review the details, then type **confirm** to run the "
@@ -767,14 +795,14 @@ with st.sidebar:
             "different order ID\n"
             "- You can tweak a field before confirming — e.g. `distance_km: 5`\n"
             "- Live weather & traffic pulled server-side at prediction time\n"
-            "- Sample order IDs: **ORD1001 – ORD1010**"
+            + sample_line
         )
 
     if st.session_state.pending_order:
         with st.expander("📋 Order awaiting confirmation", expanded=True):
             info = st.session_state.pending_order["info"]
-            st.write(f"**{info.get('order_id')}** — {info.get('customer_name', 'N/A')}")
-            st.caption(info.get("product_name", ""))
+            st.write(f"**{info.get('order_id')}** — {info.get('city', 'N/A')}")
+            st.caption(f"Store `{info.get('store_id', 'N/A')}` • {info.get('delivery_zone', 'N/A')} zone")
             st.json(st.session_state.pending_order["payload"])
 
     with st.expander("⚙️ System Status"):
@@ -815,25 +843,29 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 if not st.session_state.messages:
 
+    sample_ids = get_sample_order_ids()
+    example_id = sample_ids[0] if sample_ids else "your order ID"
+
     st.markdown(
         '<div class="welcome-wrap">'
         '<div class="brand-circle lg">⚡</div>'
         '<div class="welcome-title">Look up an order to get started</div>'
-        '<div class="welcome-sub">Type an order ID — e.g. '
-        "<code>ORD1001</code> — and I'll show you that order's details. "
+        f'<div class="welcome-sub">Type an order ID — e.g. '
+        f"<code>{example_id}</code> — and I'll show you that order's details. "
         "Then just type <code>confirm</code> and I'll run the delivery "
         "charge, ETA & rider-acceptance prediction for it.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
 
-    with st.expander("See sample order IDs"):
-        st.markdown(
-            '<div class="example-box">'
-            + "\n".join(f"ORD{1000 + i}" for i in range(1, 11))
-            + "</div>",
-            unsafe_allow_html=True,
-        )
+    if sample_ids:
+        with st.expander("See sample order IDs"):
+            st.markdown(
+                '<div class="example-box">'
+                + "\n".join(sample_ids)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
 
 # ============================================================
@@ -875,7 +907,9 @@ for message in st.session_state.messages:
 if st.session_state.flow_state == "awaiting_confirmation":
     placeholder = "Type 'confirm' to predict, 'cancel' to drop, or a new order ID…"
 else:
-    placeholder = "Enter an order ID, e.g. ORD1001…"
+    _sample_ids = get_sample_order_ids()
+    _example = _sample_ids[0] if _sample_ids else "ORD00001"
+    placeholder = f"Enter an order ID, e.g. {_example}…"
 
 prompt = st.chat_input(placeholder)
 

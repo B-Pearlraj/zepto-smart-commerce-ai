@@ -14,6 +14,20 @@ class APIClient:
         response.raise_for_status()
         return response.json()
 
+    def list_orders(self, limit: int = 5):
+        """
+        Return a list of recent order IDs, for showing a few
+        real example IDs in the chatbot UI.
+        """
+        response = requests.get(
+            f"{self.base_url}/orders",
+            params={"limit": limit},
+            timeout=15
+        )
+
+        response.raise_for_status()
+        return response.json().get("order_ids", [])
+
     def get_order(self, order_id: str):
         """
         Look up an order by ID. Returns the order dict on success,
