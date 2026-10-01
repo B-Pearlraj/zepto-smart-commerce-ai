@@ -24,7 +24,7 @@ st.set_page_config(
 
 API_BASE_URL = os.getenv(
     "FASTAPI_BASE_URL",
-    "http://127.0.0.1:8000",
+    "https://zepto-smart-commerce-ai.onrender.com",
 )
 
 api = APIClient(API_BASE_URL)
