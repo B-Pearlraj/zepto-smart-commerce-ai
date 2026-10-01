@@ -1,6 +1,5 @@
 import os
 import re
-import time
 
 import streamlit as st
 
@@ -26,43 +25,9 @@ st.set_page_config(
 API_BASE_URL = os.getenv(
     "FASTAPI_BASE_URL",
     "http://127.0.0.1:8000",
-).rstrip("/")
+)
 
 api = APIClient(API_BASE_URL)
-
-# Render free-tier services sleep when idle and can take 30-90 s to wake up.
-# On page load we ping the backend until it answers (or this budget runs out).
-BACKEND_WAKE_TIMEOUT_S = 120
-BACKEND_RETRY_INTERVAL_S = 3
-
-
-def backend_is_up() -> bool:
-    """Single quick health check."""
-    try:
-        api.health_check()
-        return True
-    except Exception:
-        return False
-
-
-def ensure_backend_connected(
-    max_wait: int = BACKEND_WAKE_TIMEOUT_S,
-    interval: int = BACKEND_RETRY_INTERVAL_S,
-) -> bool:
-    """
-    Keeps pinging the backend's health endpoint (which also wakes a
-    sleeping Render service) until it responds or max_wait seconds pass.
-    """
-    start = time.time()
-
-    while True:
-        if backend_is_up():
-            return True
-
-        if time.time() - start >= max_wait:
-            return False
-
-        time.sleep(interval)
 
 
 # ============================================================
@@ -733,31 +698,6 @@ def render_prediction_message(content: dict):
 
 
 # ============================================================
-# AUTO-CONNECT TO BACKEND ON OPEN
-# ============================================================
-
-if "backend_online" not in st.session_state:
-    st.session_state.backend_online = False
-
-if not st.session_state.backend_online:
-
-    # Misconfiguration guard: on Render the default localhost URL can never work.
-    if os.getenv("RENDER") and "127.0.0.1" in API_BASE_URL:
-        st.error(
-            "FASTAPI_BASE_URL is not set. In the Render dashboard, add the "
-            "environment variable FASTAPI_BASE_URL = your backend URL "
-            "(e.g. https://your-backend.onrender.com) and redeploy."
-        )
-        st.stop()
-
-    with st.spinner(
-        "⚡ Connecting to the backend… the server may be waking up, "
-        "this can take up to a minute on first visit."
-    ):
-        st.session_state.backend_online = ensure_backend_connected()
-
-
-# ============================================================
 # SESSION STATE
 # ============================================================
 
@@ -829,14 +769,11 @@ with st.sidebar:
             st.caption(info.get("product_name", ""))
             st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
 
-    if st.session_state.backend_online or backend_is_up():
-        st.session_state.backend_online = True
+    try:
+        api.health_check()
         st.success("🟢 Service online")
-    else:
-        st.error("🔴 Service unavailable — backend may still be waking up.")
-        if st.button("🔄 Retry connection", use_container_width=True):
-            st.session_state.backend_online = False
-            st.rerun()
+    except Exception:
+        st.error("🔴 Service unavailable — please try again shortly.")
 
     if st.button("🗑 Clear current chat", use_container_width=True):
         reset_chat()
@@ -939,10 +876,6 @@ if prompt:
         and st.session_state.flow_state == "awaiting_confirmation"
         else "🔎 Looking up order..."
     )
-
-    if not st.session_state.backend_online:
-        with st.spinner("⚡ Reconnecting to the backend…"):
-            st.session_state.backend_online = ensure_backend_connected(max_wait=60)
 
     with st.spinner(spinner_text):
         outcome = handle_user_message(prompt)
