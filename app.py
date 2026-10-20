@@ -1,7 +1,6 @@
 import os
 import re
 
-import requests
 import streamlit as st
 
 from api_client import APIClient
@@ -28,23 +27,7 @@ API_BASE_URL = os.getenv(
     "https://zepto-smart-commerce-ai.onrender.com",
 )
 
-@st.cache_resource
-def get_api(base_url: str) -> APIClient:
-    """Reuse one API client across Streamlit reruns."""
-    return APIClient(base_url)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def service_online(base_url: str) -> bool:
-    """Cache the health check so every rerun does not ping the backend."""
-    try:
-        get_api(base_url).health_check()
-        return True
-    except Exception:
-        return False
-
-
-api = get_api(API_BASE_URL)
+api = APIClient(API_BASE_URL)
 
 
 # ============================================================
@@ -425,21 +408,6 @@ def lookup_order(order_id_text: str) -> dict:
 
     try:
         order = api.get_order(order_id)
-    except requests.HTTPError as exc:
-        code = exc.response.status_code if exc.response is not None else None
-        if code == 429:
-            msg = (
-                "The server is busy (rate limit). "
-                "Please wait a few seconds and try again."
-            )
-        elif code is not None and code >= 500:
-            msg = (
-                f"The order service hit an internal error (HTTP {code}). "
-                "Please try again shortly."
-            )
-        else:
-            msg = f"Order lookup failed: {exc}"
-        return {"type": "error", "message": msg}
     except Exception as exc:
         return {
             "type": "error",
@@ -801,9 +769,10 @@ with st.sidebar:
             st.caption(info.get("product_name", ""))
             st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
 
-    if service_online(API_BASE_URL):
+    try:
+        api.health_check()
         st.success("🟢 Service online")
-    else:
+    except Exception:
         st.error("🔴 Service unavailable — please try again shortly.")
 
     if st.button("🗑 Clear current chat", use_container_width=True):
