@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import contextmanager
 
 import psycopg
@@ -12,6 +13,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+# Neon free tier suspends the database after ~5 minutes idle.
+# The first connection after that wakes it up, so we retry.
+CONNECT_RETRIES = 4
+CONNECT_TIMEOUT_SECONDS = 20
+RETRY_BACKOFF_SECONDS = 1.5
+
 
 # ------------------------------------------------------------
 # Validate configuration
@@ -22,10 +29,7 @@ def validate_database_config():
             "DATABASE_URL environment variable is not configured."
         )
 
-    if not (
-        DATABASE_URL.startswith("postgresql://")
-        or DATABASE_URL.startswith("postgresql://")
-    ):
+    if not DATABASE_URL.startswith(("postgresql://", "postgres://")):
         raise RuntimeError(
             "DATABASE_URL must be a PostgreSQL connection URL."
         )
@@ -39,10 +43,34 @@ def validate_database_config():
 def get_connection():
     validate_database_config()
 
-    return psycopg.connect(
-        DATABASE_URL,
-        connect_timeout=10,
-    )
+    extra = {}
+    # Neon requires SSL. Add it if the URL doesn't already say so.
+    if "sslmode=" not in DATABASE_URL and "neon.tech" in DATABASE_URL:
+        extra["sslmode"] = "require"
+
+    last_error = None
+
+    for attempt in range(1, CONNECT_RETRIES + 1):
+        try:
+            return psycopg.connect(
+                DATABASE_URL,
+                connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                # Safe with Neon's pooled (PgBouncer) connection
+                prepare_threshold=None,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
+                **extra,
+            )
+
+        except psycopg.OperationalError as exc:
+            last_error = exc
+
+            if attempt < CONNECT_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+
+    raise last_error
 
 
 # ------------------------------------------------------------
@@ -62,6 +90,18 @@ def database_connection():
 
     finally:
         connection.close()
+
+
+# ------------------------------------------------------------
+# Lightweight liveness check (used by /health)
+# ------------------------------------------------------------
+def ping_database() -> bool:
+    with database_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1;")
+            cursor.fetchone()
+
+    return True
 
 
 # ------------------------------------------------------------
