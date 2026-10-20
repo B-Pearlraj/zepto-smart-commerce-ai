@@ -289,32 +289,33 @@ SAMPLE_ORDERS: List[Dict[str, Any]] = [
 # ------------------------------------------------------------
 def ensure_orders_table() -> None:
     """
-    Create the `orders` table if it does not already exist.
+    Create the `orders` table if it does not already exist, and add
+    any columns that an older version of the table is missing.
     Safe to call on every application startup.
     """
 
-    query = """
+    create_query = """
         CREATE TABLE IF NOT EXISTS orders (
-            order_id VARCHAR(20) PRIMARY KEY,
+            order_id VARCHAR(100) PRIMARY KEY,
             customer_name VARCHAR(100),
             product_name VARCHAR(150),
             order_status VARCHAR(30) DEFAULT 'placed',
-            city VARCHAR(50),
+            city VARCHAR(100),
             city_tier INTEGER,
             customer_lat DOUBLE PRECISION,
             customer_lon DOUBLE PRECISION,
-            store_id VARCHAR(20),
+            store_id VARCHAR(100),
             store_lat DOUBLE PRECISION,
             store_lon DOUBLE PRECISION,
-            delivery_zone VARCHAR(30),
+            delivery_zone VARCHAR(100),
             distance_km DOUBLE PRECISION,
-            distance_band VARCHAR(20),
+            distance_band VARCHAR(50),
             distance_to_radius_ratio DOUBLE PRECISION,
             service_radius_km DOUBLE PRECISION,
             within_service_radius INTEGER,
             item_count INTEGER,
             order_amount DOUBLE PRECISION,
-            order_amount_band VARCHAR(20),
+            order_amount_band VARCHAR(50),
             order_weight_kg DOUBLE PRECISION,
             order_amount_per_kg DOUBLE PRECISION,
             order_year INTEGER,
@@ -326,37 +327,51 @@ def ensure_orders_table() -> None:
             is_month_end INTEGER,
             is_peak_hour INTEGER,
             is_weekend INTEGER,
-            time_of_day VARCHAR(20),
-            weather_condition VARCHAR(30),
+            time_of_day VARCHAR(50),
+            weather_condition VARCHAR(100),
             weather_severity INTEGER,
             rainfall_mm DOUBLE PRECISION,
             has_rain INTEGER,
             traffic_index DOUBLE PRECISION,
-            traffic_level VARCHAR(20),
-            road_type VARCHAR(30),
+            traffic_level VARCHAR(50),
+            road_type VARCHAR(100),
             current_rider_load DOUBLE PRECISION,
             previous_acceptance_rate DOUBLE PRECISION,
             rider_earnings_today DOUBLE PRECISION,
             rider_experience_months DOUBLE PRECISION,
-            rider_experience_band VARCHAR(20),
+            rider_experience_band VARCHAR(50),
             rider_rating DOUBLE PRECISION,
-            rider_rating_band VARCHAR(20),
-            vehicle_type VARCHAR(20),
+            rider_rating_band VARCHAR(50),
+            vehicle_type VARCHAR(50),
             current_incentive DOUBLE PRECISION,
-            membership_type VARCHAR(30),
+            membership_type VARCHAR(100),
             historical_delivery_cost DOUBLE PRECISION,
             historical_travel_time DOUBLE PRECISION,
-            demand_level VARCHAR(20),
+            demand_level VARCHAR(100),
             festival_day_flag INTEGER,
-            created_at TIMESTAMPTZ DEFAULT now()
+            created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now()
         );
     """
+
+    # Upgrade path: tables created by older code may lack these columns.
+    upgrade_queries = [
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(100);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_name VARCHAR(150);",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_status VARCHAR(30) DEFAULT 'placed';",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();",
+        "CREATE INDEX IF NOT EXISTS idx_orders_store_id ON orders(store_id);",
+        "CREATE INDEX IF NOT EXISTS idx_orders_city ON orders(city);",
+    ]
 
     with database_connection() as connection:
 
         with connection.cursor() as cursor:
 
-            cursor.execute(query)
+            cursor.execute(create_query)
+
+            for query in upgrade_queries:
+                cursor.execute(query)
 
             connection.commit()
 
