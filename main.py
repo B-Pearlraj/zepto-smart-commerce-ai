@@ -14,6 +14,8 @@ import sys
 import math
 import logging
 import time
+from database import ping_database
+from create_orders_table import initialize_database
 from datetime import datetime, timezone
 from inference import production_predict_order
 
@@ -92,23 +94,23 @@ app = FastAPI(
 @app.on_event("startup")
 def setup_orders_table():
     """
-    Create the `orders` lookup table if it doesn't exist yet and
-    seed it with sample orders (ORD1001 - ORD1010). Both steps are
-    idempotent, so this is safe to run on every restart.
+    Create the orders + prediction_audit tables if missing and seed
+    the sample orders (ORD1001 - ORD1010). All steps are idempotent.
     """
 
     try:
         ensure_orders_table()
+        initialize_database()
         newly_seeded = seed_sample_orders()
 
         logger.info(
-            "Orders table ready | newly_seeded=%s",
+            "Database ready | newly_seeded=%s",
             newly_seeded,
         )
 
     except Exception as exc:
         logger.exception(
-            "Orders table setup failed: %s",
+            "Database setup failed: %s",
             str(exc),
         )
 
@@ -211,13 +213,8 @@ def health_check():
         # Validate PostgreSQL connectivity
         # --------------------------------------------------------------
 
-        prediction_count = count_predictions()
-
-        logger.info(
-            "PostgreSQL health check passed | "
-            "prediction_count=%s",
-            prediction_count,
-        )
+        ping_database()
+        logger.info("PostgreSQL health check passed")
 
 
         # --------------------------------------------------------------
@@ -264,17 +261,20 @@ def get_order(order_id: str):
     try:
         order = get_order_by_id(order_id)
 
+        except psycopg.OperationalError as exc:
+        logger.exception("Database unavailable | order_id=%s", order_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please retry in a few seconds.",
+        )
+
     except Exception as exc:
         logger.exception(
             "Order lookup failed | order_id=%s | error=%s",
             order_id,
             str(exc),
         )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        )
+        raise HTTPException(status_code=500, detail=str(exc))
 
     if order is None:
         raise HTTPException(
