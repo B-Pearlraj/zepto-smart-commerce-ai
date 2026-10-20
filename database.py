@@ -23,8 +23,8 @@ def validate_database_config():
         )
 
     if not (
-        DATABASE_URL.startswith("https://")
-        or DATABASE_URL.startswith("https://")
+        DATABASE_URL.startswith("postgresql://")
+        or DATABASE_URL.startswith("postgresql://")
     ):
         raise RuntimeError(
             "DATABASE_URL must be a PostgreSQL connection URL."
