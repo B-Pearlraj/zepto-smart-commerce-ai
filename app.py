@@ -367,7 +367,7 @@ def parse_feature_edits(text: str) -> dict:
         if not fragment:
             continue
 
-        match = re.match(r"^([A-Za-z_][A-Za-z0-9_])\s[:=]\s*(.+)$", fragment)
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+)$", fragment)
         if not match:
             continue
 
@@ -450,7 +450,7 @@ def run_prediction_for_pending_order() -> dict:
             "type": "error",
             "message": (
                 "There's no order waiting for confirmation yet. "
-                "Enter an order ID first, e.g. ORD1001."
+                "Enter an order ID first, e.g. `ORD1001`."
             ),
         }
 
@@ -532,7 +532,7 @@ def render_order_found(content: dict):
     changed = content.get("changed", {})
 
     if changed:
-        st.markdown("*Updated fields for this order:*")
+        st.markdown("**Updated fields for this order:**")
         for key, (old, new) in changed.items():
             st.markdown(
                 f'<div class="diff-row"><span class="diff-key">{key}</span>: '
@@ -540,16 +540,16 @@ def render_order_found(content: dict):
                 f'<span class="diff-new">{new}</span></div>',
                 unsafe_allow_html=True,
             )
-        st.markdown("Type *confirm* to run the prediction with these updates.")
+        st.markdown("Type **confirm** to run the prediction with these updates.")
         return
 
     st.markdown(
-        f"Found order *{info.get('order_id')}* — "
+        f"Found order **`{info.get('order_id')}`** — "
         f"{info.get('customer_name', 'N/A')}"
     )
     st.markdown(
         f"🛒 {info.get('product_name', 'N/A')}  •  "
-        f"Status: {info.get('order_status', 'N/A')}"
+        f"Status: `{info.get('order_status', 'N/A')}`"
     )
 
     st.markdown("")
@@ -586,17 +586,17 @@ def render_order_found(content: dict):
     st.markdown("")
 
     st.markdown(
-        "Type *confirm* (or *yes*) to run the delivery prediction for this "
-        "order, *cancel* to drop it, or enter a different order ID to look "
-        "up another one. You can also tweak a field first — e.g. distance_km: 5."
+        "Type **confirm** (or **yes**) to run the delivery prediction for this "
+        "order, **cancel** to drop it, or enter a different order ID to look "
+        "up another one. You can also tweak a field first — e.g. `distance_km: 5`."
     )
 
 
 def render_order_not_found(content: dict):
     st.warning(
-        f"No order found with ID {content['order_id']}. "
+        f"No order found with ID `{content['order_id']}`. "
         "Double-check the ID, or try one of the sample orders "
-        "*ORD1001 – ORD1010*."
+        "**ORD1001 – ORD1010**."
     )
 
 
@@ -612,7 +612,7 @@ def render_prediction_message(content: dict):
 
     st.markdown(
         f"✅ Confirmed — here's the prediction for order "
-        f"*{info.get('order_id', 'N/A')}* "
+        f"**`{info.get('order_id', 'N/A')}`** "
         f"({info.get('customer_name', 'N/A')}, {info.get('product_name', 'N/A')})."
     )
 
@@ -751,21 +751,21 @@ with st.sidebar:
 
     with st.expander("⚡ Capabilities"):
         st.write(
-            "- Type an *order ID* and I'll pull that order's details\n"
-            "- Review the details, then type *confirm* to run the "
+            "- Type an **order ID** and I'll pull that order's details\n"
+            "- Review the details, then type **confirm** to run the "
             "delivery charge, ETA & rider-acceptance prediction\n"
-            "- Not the right order? Type *cancel*, or just enter a "
+            "- Not the right order? Type **cancel**, or just enter a "
             "different order ID\n"
-            "- You can tweak a field before confirming — e.g. distance_km: 5\n"
+            "- You can tweak a field before confirming — e.g. `distance_km: 5`\n"
             "- Live weather & traffic pulled server-side at prediction time\n"
-            "- Sample order IDs: *ORD1001 – ORD1010*"
+            "- Sample order IDs: **ORD1001 – ORD1010**"
         )
 
     if st.session_state.pending_order:
         with st.expander("📋 Order awaiting confirmation", expanded=True):
             info = st.session_state.pending_order["info"]
             payload = st.session_state.pending_order["payload"]
-            st.write(f"*{info.get('order_id')}* — {info.get('customer_name', 'N/A')}")
+            st.write(f"**{info.get('order_id')}** — {info.get('customer_name', 'N/A')}")
             st.caption(info.get("product_name", ""))
             st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
 
@@ -775,7 +775,7 @@ with st.sidebar:
     except Exception:
         st.error("🔴 Service unavailable — please try again shortly.")
 
-    if st.button("🗑️ Clear current chat", use_container_width=True):
+    if st.button("🗑 Clear current chat", use_container_width=True):
         reset_chat()
         st.rerun()
 
