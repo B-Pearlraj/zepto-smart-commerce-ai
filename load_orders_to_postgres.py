@@ -1,22 +1,7 @@
-"""
-Load the feature-engineered orders CSV into PostgreSQL (Neon).
-
-Run it from your own computer (not on Render):
-
-    python load_orders_to_postgres.py
-
-It uses DATABASE_URL from your .env file, creates the tables if they
-are missing, and upserts the rows in batches, so it is safe to run
-again if it is interrupted.
-"""
-
 import os
-
 import pandas as pd
-
-from database import database_connection
-from database_schema import create_all_tables
-
+import psycopg
+from dotenv import load_dotenv
 
 # ============================================================
 # CONFIGURATION
@@ -24,14 +9,23 @@ from database_schema import create_all_tables
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Change this ONLY if your corrected feature-engineered CSV
-# has a different filename/location (or set ORDERS_CSV_PATH).
-SOURCE_CSV = os.getenv(
-    "ORDERS_CSV_PATH",
-    os.path.join(BASE_DIR, "data", "zepto_orders_fe_corrected.csv"),
-)
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
-BATCH_SIZE = 1000
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not configured in .env")
+
+
+# IMPORTANT:
+# Change this ONLY if your corrected feature-engineered CSV
+# has a different filename/location.
+SOURCE_CSV = os.path.join(
+    BASE_DIR,
+    "data",
+    "zepto_orders_fe_corrected.csv"
+)
 
 
 # ============================================================
@@ -133,36 +127,6 @@ def validate_source(df):
 
 
 # ============================================================
-# SQL
-# ============================================================
-
-def build_upsert_sql() -> str:
-
-    insert_columns = ", ".join(ORDER_COLUMNS)
-    placeholders = ", ".join(["%s"] * len(ORDER_COLUMNS))
-
-    update_columns = [c for c in ORDER_COLUMNS if c != "order_id"]
-
-    update_clause = ",\n            ".join(
-        f"{column} = EXCLUDED.{column}"
-        for column in update_columns
-    )
-
-    return f"""
-        INSERT INTO orders (
-            {insert_columns}
-        )
-        VALUES (
-            {placeholders}
-        )
-        ON CONFLICT (order_id)
-        DO UPDATE SET
-            {update_clause},
-            updated_at = CURRENT_TIMESTAMP
-    """
-
-
-# ============================================================
 # LOAD
 # ============================================================
 
@@ -176,7 +140,7 @@ def load_orders():
             f"Source CSV not found:\n{SOURCE_CSV}"
         )
 
-    print("\nSource file:")
+    print(f"\nSource file:")
     print(SOURCE_CSV)
 
     df = pd.read_csv(SOURCE_CSV)
@@ -197,40 +161,91 @@ def load_orders():
 
     df = df.astype(object).where(pd.notna(df), None)
 
+    insert_columns = ", ".join(ORDER_COLUMNS)
+
+    placeholders = ", ".join(
+        ["%s"] * len(ORDER_COLUMNS)
+    )
+
+    insert_sql = f"""
+        INSERT INTO orders (
+            {insert_columns}
+        )
+        VALUES (
+            {placeholders}
+        )
+        ON CONFLICT (order_id)
+        DO UPDATE SET
+            city = EXCLUDED.city,
+            city_tier = EXCLUDED.city_tier,
+            customer_lat = EXCLUDED.customer_lat,
+            customer_lon = EXCLUDED.customer_lon,
+            store_id = EXCLUDED.store_id,
+            store_lat = EXCLUDED.store_lat,
+            store_lon = EXCLUDED.store_lon,
+            delivery_zone = EXCLUDED.delivery_zone,
+            distance_km = EXCLUDED.distance_km,
+            distance_band = EXCLUDED.distance_band,
+            distance_to_radius_ratio = EXCLUDED.distance_to_radius_ratio,
+            service_radius_km = EXCLUDED.service_radius_km,
+            within_service_radius = EXCLUDED.within_service_radius,
+            item_count = EXCLUDED.item_count,
+            order_amount = EXCLUDED.order_amount,
+            order_amount_band = EXCLUDED.order_amount_band,
+            order_weight_kg = EXCLUDED.order_weight_kg,
+            order_amount_per_kg = EXCLUDED.order_amount_per_kg,
+            order_year = EXCLUDED.order_year,
+            order_month = EXCLUDED.order_month,
+            order_day = EXCLUDED.order_day,
+            order_hour = EXCLUDED.order_hour,
+            order_dayofweek = EXCLUDED.order_dayofweek,
+            is_month_start = EXCLUDED.is_month_start,
+            is_month_end = EXCLUDED.is_month_end,
+            is_peak_hour = EXCLUDED.is_peak_hour,
+            is_weekend = EXCLUDED.is_weekend,
+            time_of_day = EXCLUDED.time_of_day,
+            weather_condition = EXCLUDED.weather_condition,
+            weather_severity = EXCLUDED.weather_severity,
+            rainfall_mm = EXCLUDED.rainfall_mm,
+            has_rain = EXCLUDED.has_rain,
+            traffic_index = EXCLUDED.traffic_index,
+            traffic_level = EXCLUDED.traffic_level,
+            road_type = EXCLUDED.road_type,
+            current_rider_load = EXCLUDED.current_rider_load,
+            previous_acceptance_rate = EXCLUDED.previous_acceptance_rate,
+            rider_earnings_today = EXCLUDED.rider_earnings_today,
+            rider_experience_months = EXCLUDED.rider_experience_months,
+            rider_experience_band = EXCLUDED.rider_experience_band,
+            rider_rating = EXCLUDED.rider_rating,
+            rider_rating_band = EXCLUDED.rider_rating_band,
+            vehicle_type = EXCLUDED.vehicle_type,
+            current_incentive = EXCLUDED.current_incentive,
+            membership_type = EXCLUDED.membership_type,
+            historical_delivery_cost = EXCLUDED.historical_delivery_cost,
+            historical_travel_time = EXCLUDED.historical_travel_time,
+            demand_level = EXCLUDED.demand_level,
+            festival_day_flag = EXCLUDED.festival_day_flag,
+            updated_at = CURRENT_TIMESTAMP
+    """
+
     rows = [
         tuple(row)
         for row in df.itertuples(index=False, name=None)
     ]
 
-    insert_sql = build_upsert_sql()
+    print("\nConnecting to PostgreSQL...")
 
-    # --------------------------------------------------------
-    # Make sure the tables exist (fresh Neon database)
-    # --------------------------------------------------------
-
-    print("\nConnecting to PostgreSQL (Neon may take a few seconds to wake)...")
-
-    create_all_tables()
-
-    print("Tables: READY")
-
-    # --------------------------------------------------------
-    # Insert in batches
-    # --------------------------------------------------------
-
-    print("\nInserting orders...")
-
-    with database_connection() as conn:
+    with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
 
-            for start in range(0, len(rows), BATCH_SIZE):
+            print("Inserting orders...")
 
-                batch = rows[start:start + BATCH_SIZE]
+            cur.executemany(
+                insert_sql,
+                rows
+            )
 
-                cur.executemany(insert_sql, batch)
-
-                done = min(start + BATCH_SIZE, len(rows))
-                print(f"  {done:,} / {len(rows):,}")
+        conn.commit()
 
     print("\nPostgreSQL insert: PASSED")
 
@@ -238,7 +253,7 @@ def load_orders():
     # Verify
     # --------------------------------------------------------
 
-    with database_connection() as conn:
+    with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
 
             cur.execute("SELECT COUNT(*) FROM orders")

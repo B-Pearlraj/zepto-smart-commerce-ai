@@ -9,24 +9,43 @@ Production Model:
 HGB-v1
 """
 
-import logging
-import math
-import sys
-import time
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
+import sys
+import math
+import logging
+import time
+from datetime import datetime, timezone
+from inference import production_predict_order
+
+# ----------------------------------------------------------------------
+# PostgreSQL repository
+# ----------------------------------------------------------------------
+from database_repository import (
+    save_prediction,
+    count_predictions,
+    get_recent_predictions,
+    ensure_orders_table,
+    seed_sample_orders,
+    get_order_by_id,
+)
 
 # ----------------------------------------------------------------------
 # Ensure FastAPI application directory is importable
-# (must happen before the project imports below)
 # ----------------------------------------------------------------------
 APP_DIR = Path(__file__).resolve().parent
 
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-import psycopg
+# ----------------------------------------------------------------------
+# Weather and Traffic providers
+# ----------------------------------------------------------------------
+from weather_provider import get_weather
+from tomtom_traffic_provider import get_traffic
+
+# ----------------------------------------------------------------------
+# FastAPI imports
+# ----------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException
 
 from config import (
@@ -43,26 +62,8 @@ from schemas import (
     ErrorResponse,
 )
 
-from inference import production_predict_order
-
-# ----------------------------------------------------------------------
-# Weather and Traffic providers
-# ----------------------------------------------------------------------
-from weather_provider import get_weather
-from tomtom_traffic_provider import get_traffic
-
-# ----------------------------------------------------------------------
-# PostgreSQL (Neon) repository
-# ----------------------------------------------------------------------
-from database import DatabaseUnavailableError
-
-from database_repository import (
-    save_prediction,
-    count_predictions,
-    get_recent_predictions,
-    ensure_database_schema,
-    seed_sample_orders,
-    get_order_by_id,
+from inference import (
+    production_predict_order,
 )
 
 # ======================================================================
@@ -75,51 +76,6 @@ logging.basicConfig(
 
 logger = logging.getLogger("zepto_fastapi")
 
-# Errors that mean "the database could not be reached right now".
-DB_UNAVAILABLE_ERRORS = (
-    DatabaseUnavailableError,
-    psycopg.OperationalError,
-    psycopg.InterfaceError,
-)
-
-DB_UNAVAILABLE_MESSAGE = (
-    "The database is temporarily unavailable. "
-    "Please try again in a few seconds."
-)
-
-
-# ======================================================================
-# STARTUP: ENSURE TABLES EXIST + SEED SAMPLE ORDERS
-# ======================================================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Create the `orders` and `prediction_audit` tables if they don't
-    exist yet and seed the sample orders (ORD1001 - ORD1010).
-    Both steps are idempotent, so this is safe on every restart and
-    makes a brand-new Neon database work on the first deploy.
-    """
-
-    try:
-        ensure_database_schema()
-        newly_seeded = seed_sample_orders()
-
-        logger.info(
-            "Database schema ready | newly_seeded=%s",
-            newly_seeded,
-        )
-
-    except Exception as exc:
-        # Do not stop the API from starting; the first request that
-        # touches the database will report the problem clearly.
-        logger.exception(
-            "Database setup failed: %s",
-            str(exc),
-        )
-
-    yield
-
-
 # ======================================================================
 # FASTAPI APPLICATION
 # ======================================================================
@@ -127,9 +83,34 @@ app = FastAPI(
     title=API_TITLE,
     description=API_DESCRIPTION,
     version=API_VERSION,
-    lifespan=lifespan,
 )
 
+
+# ======================================================================
+# STARTUP: ENSURE ORDERS TABLE EXISTS + SEEDED
+# ======================================================================
+@app.on_event("startup")
+def setup_orders_table():
+    """
+    Create the `orders` lookup table if it doesn't exist yet and
+    seed it with sample orders (ORD1001 - ORD1010). Both steps are
+    idempotent, so this is safe to run on every restart.
+    """
+
+    try:
+        ensure_orders_table()
+        newly_seeded = seed_sample_orders()
+
+        logger.info(
+            "Orders table ready | newly_seeded=%s",
+            newly_seeded,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Orders table setup failed: %s",
+            str(exc),
+        )
 
 # ======================================================================
 # HTTP REQUEST LOGGING MIDDLEWARE
@@ -200,28 +181,48 @@ def root():
 
 
 # ======================================================================
-# HEALTH ENDPOINTS
+# HEALTH ENDPOINT
 # ======================================================================
+
 @app.get(
     "/health",
     response_model=HealthResponse,
 )
 def health_check():
     """
-    Lightweight health check used by the Streamlit sidebar.
-
-    It does NOT query the database on purpose: Neon scales to zero
-    when idle, and pinging the database from a frequent health check
-    would keep it awake and use up your compute allowance.
-    Use /health/db to test the database connection.
+    Verify that the production inference engine,
+    external enrichment providers, and PostgreSQL
+    database are available.
     """
 
     try:
+
+        # --------------------------------------------------------------
+        # Validate production inference engine
+        # --------------------------------------------------------------
 
         if not callable(production_predict_order):
             raise RuntimeError(
                 "Production inference engine is unavailable."
             )
+
+
+        # --------------------------------------------------------------
+        # Validate PostgreSQL connectivity
+        # --------------------------------------------------------------
+
+        prediction_count = count_predictions()
+
+        logger.info(
+            "PostgreSQL health check passed | "
+            "prediction_count=%s",
+            prediction_count,
+        )
+
+
+        # --------------------------------------------------------------
+        # Return healthy status
+        # --------------------------------------------------------------
 
         return HealthResponse(
             status="healthy",
@@ -233,6 +234,7 @@ def health_check():
             traffic_provider="available",
         )
 
+
     except Exception as exc:
 
         logger.exception(
@@ -242,55 +244,8 @@ def health_check():
 
         raise HTTPException(
             status_code=503,
-            detail="Service is not healthy.",
+            detail=str(exc),
         )
-
-
-@app.get("/health/db")
-def database_health_check():
-    """
-    Deep health check: opens a real connection to PostgreSQL (Neon)
-    and runs a query. Open this URL in a browser to test the database.
-    """
-
-    try:
-        prediction_count = count_predictions()
-
-        logger.info(
-            "PostgreSQL health check passed | prediction_count=%s",
-            prediction_count,
-        )
-
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "prediction_count": prediction_count,
-        }
-
-    except DB_UNAVAILABLE_ERRORS as exc:
-
-        logger.exception(
-            "Database health check failed: %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=DB_UNAVAILABLE_MESSAGE,
-        )
-
-    except Exception as exc:
-
-        logger.exception(
-            "Database health check failed: %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="Database check failed. See the server logs.",
-        )
-
 
 # ======================================================================
 # ORDER LOOKUP ENDPOINT
@@ -309,19 +264,6 @@ def get_order(order_id: str):
     try:
         order = get_order_by_id(order_id)
 
-    except DB_UNAVAILABLE_ERRORS as exc:
-        logger.exception(
-            "Order lookup failed (database unavailable) | "
-            "order_id=%s | error=%s",
-            order_id,
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=DB_UNAVAILABLE_MESSAGE,
-        )
-
     except Exception as exc:
         logger.exception(
             "Order lookup failed | order_id=%s | error=%s",
@@ -331,7 +273,7 @@ def get_order(order_id: str):
 
         raise HTTPException(
             status_code=500,
-            detail="Unexpected error while looking up the order.",
+            detail=str(exc),
         )
 
     if order is None:
@@ -472,9 +414,10 @@ def predict(
             status="success",
             model_version=MODEL_VERSION,
 
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
             # LIVE WEATHER USED BY THE MODEL
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
+
             weather={
                 "source": weather_data["source"],
                 "location_name": weather_data.get(
@@ -509,9 +452,10 @@ def predict(
                 ],
             },
 
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
             # LIVE TRAFFIC USED BY THE MODEL
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
+
             traffic={
                 "source": traffic_data["source"],
                 "current_speed_kmh": traffic_data[
@@ -528,9 +472,10 @@ def predict(
                 ],
             },
 
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
             # ML PREDICTIONS
-            # ----------------------------------------------------------
+            # --------------------------------------------------------------
+
             delivery_charge=delivery_charge,
 
             delivery_time_minutes=delivery_time,
@@ -595,6 +540,7 @@ def predict(
 # ======================================================================
 # PREDICTION AUDIT ENDPOINT
 # ======================================================================
+
 @app.get(
     "/predictions/recent",
 )
@@ -610,6 +556,10 @@ def recent_predictions(limit: int = 20):
 
     try:
 
+        # --------------------------------------------------------------
+        # Validate limit
+        # --------------------------------------------------------------
+
         if limit < 1:
             raise ValueError(
                 "limit must be greater than zero."
@@ -620,13 +570,20 @@ def recent_predictions(limit: int = 20):
                 "limit must not exceed 100."
             )
 
+
+        # --------------------------------------------------------------
+        # Retrieve recent predictions
+        # --------------------------------------------------------------
+
         predictions = get_recent_predictions(
             limit
         )
 
+
         # --------------------------------------------------------------
         # Convert database records into JSON-safe values
         # --------------------------------------------------------------
+
         results = []
 
         for prediction in predictions:
@@ -645,11 +602,17 @@ def recent_predictions(limit: int = 20):
 
             results.append(record)
 
+
+        # --------------------------------------------------------------
+        # Return audit results
+        # --------------------------------------------------------------
+
         return {
             "status": "success",
             "count": len(results),
             "predictions": results,
         }
+
 
     except ValueError as exc:
 
@@ -658,18 +621,6 @@ def recent_predictions(limit: int = 20):
             detail=str(exc),
         )
 
-    except DB_UNAVAILABLE_ERRORS as exc:
-
-        logger.exception(
-            "Recent prediction retrieval failed "
-            "(database unavailable): %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=DB_UNAVAILABLE_MESSAGE,
-        )
 
     except Exception as exc:
 
@@ -680,7 +631,7 @@ def recent_predictions(limit: int = 20):
 
         raise HTTPException(
             status_code=500,
-            detail="Unexpected error while loading recent predictions.",
+            detail=str(exc),
         )
 
 
@@ -700,10 +651,15 @@ def application_info():
         "endpoints": [
             "/",
             "/health",
-            "/health/db",
             "/info",
-            "/orders/{order_id}",
             "/predict",
-            "/predictions/recent",
         ],
     }
+
+
+# ======================================================================
+# NOTE
+# ======================================================================
+# This file keeps the existing API behavior intact and adds PostgreSQL
+# audit logging only after a successful prediction has been generated
+# and validated.

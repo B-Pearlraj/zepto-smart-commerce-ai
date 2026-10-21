@@ -1,7 +1,6 @@
 import os
 import re
 
-import requests
 import streamlit as st
 
 from api_client import APIClient
@@ -28,27 +27,7 @@ API_BASE_URL = os.getenv(
     "https://zepto-smart-commerce-ai.onrender.com",
 )
 
-
-@st.cache_resource
-def get_api(base_url: str) -> APIClient:
-    """One shared API client (and HTTP session) for all reruns."""
-    return APIClient(base_url)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def service_online(base_url: str) -> bool:
-    """
-    Cached so the backend is not pinged on every Streamlit rerun
-    (every click / keystroke), which caused 429 Too Many Requests.
-    """
-    try:
-        get_api(base_url).health_check()
-        return True
-    except Exception:
-        return False
-
-
-api = get_api(API_BASE_URL)
+api = APIClient(API_BASE_URL)
 
 
 # ============================================================
@@ -355,7 +334,7 @@ st.markdown(
 
 
 # ============================================================
-# PARSING / FORMATTING HELPERS
+# PARSING HELPERS
 # ============================================================
 
 def coerce_value(raw: str):
@@ -403,19 +382,6 @@ def format_optional(value):
     return "N/A" if value is None else str(value)
 
 
-def display_text(value, default: str = "N/A") -> str:
-    """Show a value, or N/A when the database value is empty/NULL."""
-    return default if value in (None, "") else str(value)
-
-
-def to_float(value, default: float = 0.0) -> float:
-    """Safe float conversion for numbers that may be NULL/None."""
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 # ============================================================
 # WORDS THAT MOVE THE CONVERSATION STATE MACHINE
 # ============================================================
@@ -442,39 +408,6 @@ def lookup_order(order_id_text: str) -> dict:
 
     try:
         order = api.get_order(order_id)
-
-    except requests.HTTPError as exc:
-        code = exc.response.status_code if exc.response is not None else None
-
-        if code == 429:
-            message = (
-                "The server is busy (rate limit). "
-                "Please wait a few seconds and try again."
-            )
-        elif code == 503:
-            message = (
-                "The order database is waking up. "
-                "Please try again in a few seconds."
-            )
-        elif code and code >= 500:
-            message = (
-                f"The order service hit an internal error (HTTP {code}). "
-                "Please try again shortly."
-            )
-        else:
-            message = f"Order lookup failed: {exc}"
-
-        return {"type": "error", "message": message}
-
-    except (requests.ConnectionError, requests.Timeout):
-        return {
-            "type": "error",
-            "message": (
-                "The backend is not responding yet. It may be starting up "
-                "after being idle — wait about a minute and try again."
-            ),
-        }
-
     except Exception as exc:
         return {
             "type": "error",
@@ -612,11 +545,11 @@ def render_order_found(content: dict):
 
     st.markdown(
         f"Found order **`{info.get('order_id')}`** — "
-        f"{display_text(info.get('customer_name'))}"
+        f"{info.get('customer_name', 'N/A')}"
     )
     st.markdown(
-        f"🛒 {display_text(info.get('product_name'))}  •  "
-        f"Status: `{display_text(info.get('order_status'))}`"
+        f"🛒 {info.get('product_name', 'N/A')}  •  "
+        f"Status: `{info.get('order_status', 'N/A')}`"
     )
 
     st.markdown("")
@@ -627,7 +560,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">📍 City</div>'
-            f'<div class="result-value" style="font-size:18px;">{display_text(info.get("city"))}</div>'
+            f'<div class="result-value" style="font-size:18px;">{info.get("city", "N/A")}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -636,7 +569,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">📏 Distance</div>'
-            f'<div class="result-value" style="font-size:18px;">{to_float(info.get("distance_km")):.1f} km</div>'
+            f'<div class="result-value" style="font-size:18px;">{info.get("distance_km", 0):.1f} km</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -645,7 +578,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">💵 Order Amount</div>'
-            f'<div class="result-value" style="font-size:18px;">₹{to_float(info.get("order_amount")):.0f}</div>'
+            f'<div class="result-value" style="font-size:18px;">₹{info.get("order_amount", 0):.0f}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -680,8 +613,7 @@ def render_prediction_message(content: dict):
     st.markdown(
         f"✅ Confirmed — here's the prediction for order "
         f"**`{info.get('order_id', 'N/A')}`** "
-        f"({display_text(info.get('customer_name'))}, "
-        f"{display_text(info.get('product_name'))})."
+        f"({info.get('customer_name', 'N/A')}, {info.get('product_name', 'N/A')})."
     )
 
     st.markdown("")
@@ -729,8 +661,8 @@ def render_prediction_message(content: dict):
             unsafe_allow_html=True,
         )
 
-    weather = result.get("weather") or {}
-    traffic = result.get("traffic") or {}
+    weather = result.get("weather", {})
+    traffic = result.get("traffic", {})
 
     with st.expander("🌤️ Weather & 🚦 traffic used for this prediction"):
 
@@ -751,16 +683,16 @@ def render_prediction_message(content: dict):
                 f"{humidity:.0f}%" if humidity is not None else "N/A",
             )
         with wc4:
-            st.metric("Rainfall", f"{to_float(weather.get('rainfall_mm')):.1f} mm")
+            st.metric("Rainfall", f"{weather.get('rainfall_mm', 0):.1f} mm")
 
         tc1, tc2, tc3 = st.columns(3)
 
         with tc1:
             st.metric("Traffic Level", format_optional(traffic.get("traffic_level")))
         with tc2:
-            st.metric("Traffic Index", f"{to_float(traffic.get('traffic_index')):.1f}")
+            st.metric("Traffic Index", f"{traffic.get('traffic_index', 0):.1f}")
         with tc3:
-            st.metric("Current Speed", f"{to_float(traffic.get('current_speed_kmh')):.1f} km/h")
+            st.metric("Current Speed", f"{traffic.get('current_speed_kmh', 0):.1f} km/h")
 
     st.caption("Powered by real-time weather and traffic data.")
 
@@ -833,18 +765,14 @@ with st.sidebar:
         with st.expander("📋 Order awaiting confirmation", expanded=True):
             info = st.session_state.pending_order["info"]
             payload = st.session_state.pending_order["payload"]
-            st.write(f"**{info.get('order_id')}** — {display_text(info.get('customer_name'))}")
-            st.caption(display_text(info.get("product_name"), default=""))
-            st.write(
-                f"📍 {display_text(payload.get('city'))}  •  "
-                f"📏 {to_float(payload.get('distance_km')):.1f} km  •  "
-                f"💵 ₹{to_float(payload.get('order_amount')):.0f}"
-            )
+            st.write(f"**{info.get('order_id')}** — {info.get('customer_name', 'N/A')}")
+            st.caption(info.get("product_name", ""))
+            st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
 
-    # Cached for 60 seconds, so this does not hit the backend on every rerun.
-    if service_online(API_BASE_URL):
+    try:
+        api.health_check()
         st.success("🟢 Service online")
-    else:
+    except Exception:
         st.error("🔴 Service unavailable — please try again shortly.")
 
     if st.button("🗑 Clear current chat", use_container_width=True):
