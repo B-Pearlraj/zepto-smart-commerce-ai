@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
-from database import database_connection
+from database import database_connection, retry_transient
+from database_schema import create_all_tables
 
 
 # ------------------------------------------------------------
@@ -74,6 +75,19 @@ ORDER_FEATURE_COLUMNS: List[str] = [
 ORDER_COLUMNS: List[str] = (
     ORDER_DISPLAY_COLUMNS + ORDER_FEATURE_COLUMNS + ["created_at"]
 )
+
+PREDICTION_COLUMNS: List[str] = [
+    "id",
+    "request_timestamp",
+    "model_version",
+    "delivery_charge",
+    "delivery_time_minutes",
+    "rider_acceptance_probability",
+    "rider_acceptance",
+    "weather_source",
+    "traffic_source",
+    "created_at",
+]
 
 
 # ------------------------------------------------------------
@@ -285,80 +299,16 @@ SAMPLE_ORDERS: List[Dict[str, Any]] = [
 
 
 # ------------------------------------------------------------
-# Ensure orders table exists
+# Ensure all tables exist (orders + prediction_audit)
 # ------------------------------------------------------------
-def ensure_orders_table() -> None:
+def ensure_database_schema() -> None:
     """
-    Create the `orders` table if it does not already exist.
-    Safe to call on every application startup.
-    """
-
-    query = """
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id VARCHAR(20) PRIMARY KEY,
-            customer_name VARCHAR(100),
-            product_name VARCHAR(150),
-            order_status VARCHAR(30) DEFAULT 'placed',
-            city VARCHAR(50),
-            city_tier INTEGER,
-            customer_lat DOUBLE PRECISION,
-            customer_lon DOUBLE PRECISION,
-            store_id VARCHAR(20),
-            store_lat DOUBLE PRECISION,
-            store_lon DOUBLE PRECISION,
-            delivery_zone VARCHAR(30),
-            distance_km DOUBLE PRECISION,
-            distance_band VARCHAR(20),
-            distance_to_radius_ratio DOUBLE PRECISION,
-            service_radius_km DOUBLE PRECISION,
-            within_service_radius INTEGER,
-            item_count INTEGER,
-            order_amount DOUBLE PRECISION,
-            order_amount_band VARCHAR(20),
-            order_weight_kg DOUBLE PRECISION,
-            order_amount_per_kg DOUBLE PRECISION,
-            order_year INTEGER,
-            order_month INTEGER,
-            order_day INTEGER,
-            order_hour INTEGER,
-            order_dayofweek INTEGER,
-            is_month_start INTEGER,
-            is_month_end INTEGER,
-            is_peak_hour INTEGER,
-            is_weekend INTEGER,
-            time_of_day VARCHAR(20),
-            weather_condition VARCHAR(30),
-            weather_severity INTEGER,
-            rainfall_mm DOUBLE PRECISION,
-            has_rain INTEGER,
-            traffic_index DOUBLE PRECISION,
-            traffic_level VARCHAR(20),
-            road_type VARCHAR(30),
-            current_rider_load DOUBLE PRECISION,
-            previous_acceptance_rate DOUBLE PRECISION,
-            rider_earnings_today DOUBLE PRECISION,
-            rider_experience_months DOUBLE PRECISION,
-            rider_experience_band VARCHAR(20),
-            rider_rating DOUBLE PRECISION,
-            rider_rating_band VARCHAR(20),
-            vehicle_type VARCHAR(20),
-            current_incentive DOUBLE PRECISION,
-            membership_type VARCHAR(30),
-            historical_delivery_cost DOUBLE PRECISION,
-            historical_travel_time DOUBLE PRECISION,
-            demand_level VARCHAR(20),
-            festival_day_flag INTEGER,
-            created_at TIMESTAMPTZ DEFAULT now()
-        );
+    Create the `orders` and `prediction_audit` tables if they do not
+    exist yet. Safe to call on every application startup, which is
+    what makes a brand-new Neon database work on the first deploy.
     """
 
-    with database_connection() as connection:
-
-        with connection.cursor() as cursor:
-
-            cursor.execute(query)
-
-            connection.commit()
+    create_all_tables()
 
 
 # ------------------------------------------------------------
@@ -397,14 +347,13 @@ def seed_sample_orders() -> int:
 
                 inserted += cursor.rowcount
 
-            connection.commit()
-
     return inserted
 
 
 # ------------------------------------------------------------
 # Get order by ID
 # ------------------------------------------------------------
+@retry_transient()
 def get_order_by_id(order_id: str) -> Optional[Dict[str, Any]]:
     """
     Fetch a single order (customer/product info plus the full
@@ -436,8 +385,9 @@ def get_order_by_id(order_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------
-# List recent order IDs (used for UI hints)
+# List order IDs (used for UI hints)
 # ------------------------------------------------------------
+@retry_transient()
 def list_order_ids(limit: int = 20) -> List[str]:
 
     query = """
@@ -457,7 +407,7 @@ def list_order_ids(limit: int = 20) -> List[str]:
 
 
 # ------------------------------------------------------------
-# Save prediction
+# Save prediction  (write: intentionally NOT retried)
 # ------------------------------------------------------------
 def save_prediction(
     model_version: str,
@@ -515,22 +465,13 @@ def save_prediction(
 # ------------------------------------------------------------
 # Get prediction by ID
 # ------------------------------------------------------------
+@retry_transient()
 def get_prediction_by_id(
     prediction_id: int,
 ) -> Optional[Dict[str, Any]]:
 
-    query = """
-        SELECT
-            id,
-            request_timestamp,
-            model_version,
-            delivery_charge,
-            delivery_time_minutes,
-            rider_acceptance_probability,
-            rider_acceptance,
-            weather_source,
-            traffic_source,
-            created_at
+    query = f"""
+        SELECT {", ".join(PREDICTION_COLUMNS)}
         FROM prediction_audit
         WHERE id = %s;
     """
@@ -549,25 +490,13 @@ def get_prediction_by_id(
             if row is None:
                 return None
 
-            columns = [
-                "id",
-                "request_timestamp",
-                "model_version",
-                "delivery_charge",
-                "delivery_time_minutes",
-                "rider_acceptance_probability",
-                "rider_acceptance",
-                "weather_source",
-                "traffic_source",
-                "created_at",
-            ]
-
-            return dict(zip(columns, row))
+            return dict(zip(PREDICTION_COLUMNS, row))
 
 
 # ------------------------------------------------------------
 # Get recent predictions
 # ------------------------------------------------------------
+@retry_transient()
 def get_recent_predictions(
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
@@ -578,45 +507,22 @@ def get_recent_predictions(
     limit = min(limit, 100)
 
     query = f"""
-        SELECT
-            id,
-            request_timestamp,
-            model_version,
-            delivery_charge,
-            delivery_time_minutes,
-            rider_acceptance_probability,
-            rider_acceptance,
-            weather_source,
-            traffic_source,
-            created_at
+        SELECT {", ".join(PREDICTION_COLUMNS)}
         FROM prediction_audit
         ORDER BY id DESC
-        LIMIT {limit};
+        LIMIT %s;
     """
 
     with database_connection() as connection:
 
         with connection.cursor() as cursor:
 
-            cursor.execute(query)
+            cursor.execute(query, (limit,))
 
             rows = cursor.fetchall()
 
-            columns = [
-                "id",
-                "request_timestamp",
-                "model_version",
-                "delivery_charge",
-                "delivery_time_minutes",
-                "rider_acceptance_probability",
-                "rider_acceptance",
-                "weather_source",
-                "traffic_source",
-                "created_at",
-            ]
-
             return [
-                dict(zip(columns, row))
+                dict(zip(PREDICTION_COLUMNS, row))
                 for row in rows
             ]
 
@@ -624,6 +530,7 @@ def get_recent_predictions(
 # ------------------------------------------------------------
 # Count predictions
 # ------------------------------------------------------------
+@retry_transient()
 def count_predictions() -> int:
 
     query = """
@@ -646,20 +553,20 @@ def count_predictions() -> int:
 
 
 # ------------------------------------------------------------
-# Repository validation
+# Repository validation  (python database_repository.py)
 # ------------------------------------------------------------
 if __name__ == "__main__":
 
     print("=" * 70)
-    print("STEP 16.3 - POSTGRESQL PREDICTION REPOSITORY")
+    print("POSTGRESQL REPOSITORY SELF-TEST")
     print("=" * 70)
 
-    print("\n0. Testing orders table + seed data...")
+    print("\n0. Testing schema + seed data...")
 
-    ensure_orders_table()
+    ensure_database_schema()
     newly_inserted = seed_sample_orders()
 
-    print(f"   Orders table ready. Newly seeded rows: {newly_inserted}")
+    print(f"   Tables ready. Newly seeded rows: {newly_inserted}")
 
     sample_order = get_order_by_id("ORD1001")
 
@@ -667,8 +574,7 @@ if __name__ == "__main__":
     assert sample_order["order_id"] == "ORD1001"
     assert sample_order["city"] == "Chennai"
 
-    missing_order = get_order_by_id("ORD9999")
-    assert missing_order is None
+    assert get_order_by_id("ORD9999") is None
 
     print("   ORDERS TABLE + LOOKUP: PASSED")
 
@@ -686,46 +592,25 @@ if __name__ == "__main__":
 
     assert prediction_id > 0
 
-    print(
-        f"   Prediction inserted successfully. "
-        f"ID: {prediction_id}"
-    )
+    print(f"   Prediction inserted. ID: {prediction_id}")
     print("   INSERT: PASSED")
 
-    # --------------------------------------------------------
-    # Retrieve inserted prediction
-    # --------------------------------------------------------
     print("\n2. Testing prediction retrieval...")
 
-    prediction = get_prediction_by_id(
-        prediction_id
-    )
+    prediction = get_prediction_by_id(prediction_id)
 
     assert prediction is not None
     assert prediction["id"] == prediction_id
     assert prediction["model_version"] == "HGB-v1"
-
-    assert float(
-        prediction["delivery_charge"]
-    ) == 23.514602084535156
-
-    assert float(
-        prediction["delivery_time_minutes"]
-    ) == 24.446456288765443
-
-    assert float(
-        prediction["rider_acceptance_probability"]
-    ) == 0.9614576600000068
-
+    assert float(prediction["delivery_charge"]) == 23.514602084535156
+    assert float(prediction["delivery_time_minutes"]) == 24.446456288765443
+    assert float(prediction["rider_acceptance_probability"]) == 0.9614576600000068
     assert prediction["rider_acceptance"] == 1
     assert prediction["weather_source"] == "openweather-live"
     assert prediction["traffic_source"] == "tomtom"
 
     print("   SELECT by ID: PASSED")
 
-    # --------------------------------------------------------
-    # Recent predictions
-    # --------------------------------------------------------
     print("\n3. Testing recent predictions...")
 
     recent = get_recent_predictions(limit=10)
@@ -733,14 +618,9 @@ if __name__ == "__main__":
     assert isinstance(recent, list)
     assert len(recent) >= 1
 
-    print(
-        f"   Retrieved {len(recent)} recent prediction(s)."
-    )
+    print(f"   Retrieved {len(recent)} recent prediction(s).")
     print("   RECENT PREDICTIONS: PASSED")
 
-    # --------------------------------------------------------
-    # Count
-    # --------------------------------------------------------
     print("\n4. Testing prediction count...")
 
     count = count_predictions()
@@ -750,17 +630,6 @@ if __name__ == "__main__":
     print(f"   Total predictions: {count}")
     print("   COUNT: PASSED")
 
-    # --------------------------------------------------------
-    # Final result
-    # --------------------------------------------------------
     print("\n" + "=" * 70)
-    print("STEP 16.3 RESULT")
-    print("=" * 70)
-
-    print("PostgreSQL INSERT: PASSED")
-    print("PostgreSQL SELECT: PASSED")
-    print("Recent prediction retrieval: PASSED")
-    print("Prediction count: PASSED")
-
-    print("\nOVERALL STATUS: PASSED")
+    print("OVERALL STATUS: PASSED")
     print("=" * 70)
