@@ -2,8 +2,6 @@ import os
 import pandas as pd
 import psycopg
 from dotenv import load_dotenv
-from database import get_connection
-from database_repository import ensure_orders_table
 
 # ============================================================
 # CONFIGURATION
@@ -131,7 +129,7 @@ def validate_source(df):
 # ============================================================
 # LOAD
 # ============================================================
-ensure_orders_table()
+
 def load_orders():
     print("=" * 70)
     print("LOADING ZEPTO ORDERS INTO POSTGRESQL")
@@ -256,7 +254,7 @@ def load_orders():
     # --------------------------------------------------------
 
     with psycopg.connect(DATABASE_URL) as conn:
-         with get_connection() as conn:
+        with conn.cursor() as cur:
 
             cur.execute("SELECT COUNT(*) FROM orders")
             database_count = cur.fetchone()[0]
