@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 import requests
 import streamlit as st
@@ -28,23 +29,58 @@ API_BASE_URL = os.getenv(
     "https://zepto-smart-commerce-ai.onrender.com",
 )
 
+
 @st.cache_resource
 def get_api(base_url: str) -> APIClient:
-    """Reuse one API client across Streamlit reruns."""
+    """One shared API client (and HTTP session) for all reruns."""
     return APIClient(base_url)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def service_online(base_url: str) -> bool:
-    """Cache the health check so every rerun does not ping the backend."""
-    try:
-        get_api(base_url).health_check()
-        return True
-    except Exception:
-        return False
-
-
 api = get_api(API_BASE_URL)
+
+
+# ------------------------------------------------------------
+# Sidebar status check
+#
+# The sidebar status comes from a quick check of the backend's
+# /health endpoint. To avoid 429 errors the result is remembered,
+# but a GOOD result is remembered for 60 seconds while a BAD one is
+# only remembered for 5 seconds, so a failed check made while the
+# backend was still waking up does not stay red after it is ready.
+# ------------------------------------------------------------
+
+STATUS_TTL_ONLINE_SECONDS = 60
+STATUS_TTL_PROBLEM_SECONDS = 5
+
+
+def get_service_status(force: bool = False) -> dict:
+    cached = st.session_state.get("service_status")
+
+    if cached and not force:
+        age = time.time() - cached["checked_at"]
+        ttl = (
+            STATUS_TTL_ONLINE_SECONDS
+            if cached["state"] == "online"
+            else STATUS_TTL_PROBLEM_SECONDS
+        )
+
+        if age < ttl:
+            return cached
+
+    status = api.ping()
+    status["checked_at"] = time.time()
+    st.session_state.service_status = status
+
+    return status
+
+
+def mark_service_online():
+    """A successful order lookup / prediction proves the backend is up."""
+    st.session_state.service_status = {
+        "state": "online",
+        "detail": "",
+        "checked_at": time.time(),
+    }
 
 
 # ============================================================
@@ -351,7 +387,7 @@ st.markdown(
 
 
 # ============================================================
-# PARSING HELPERS
+# PARSING / FORMATTING HELPERS
 # ============================================================
 
 def coerce_value(raw: str):
@@ -399,6 +435,19 @@ def format_optional(value):
     return "N/A" if value is None else str(value)
 
 
+def display_text(value, default: str = "N/A") -> str:
+    """Show a value, or N/A when the database value is empty/NULL."""
+    return default if value in (None, "") else str(value)
+
+
+def to_float(value, default: float = 0.0) -> float:
+    """Safe float conversion for numbers that may be NULL/None."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # ============================================================
 # WORDS THAT MOVE THE CONVERSATION STATE MACHINE
 # ============================================================
@@ -425,26 +474,46 @@ def lookup_order(order_id_text: str) -> dict:
 
     try:
         order = api.get_order(order_id)
+
     except requests.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else None
+
         if code == 429:
-            msg = (
+            message = (
                 "The server is busy (rate limit). "
                 "Please wait a few seconds and try again."
             )
-        elif code is not None and code >= 500:
-            msg = (
+        elif code == 503:
+            message = (
+                "The order database is waking up. "
+                "Please try again in a few seconds."
+            )
+        elif code and code >= 500:
+            message = (
                 f"The order service hit an internal error (HTTP {code}). "
                 "Please try again shortly."
             )
         else:
-            msg = f"Order lookup failed: {exc}"
-        return {"type": "error", "message": msg}
+            message = f"Order lookup failed: {exc}"
+
+        return {"type": "error", "message": message}
+
+    except (requests.ConnectionError, requests.Timeout):
+        return {
+            "type": "error",
+            "message": (
+                "The backend is not responding yet. It may be starting up "
+                "after being idle — wait about a minute and try again."
+            ),
+        }
+
     except Exception as exc:
         return {
             "type": "error",
             "message": f"Couldn't reach the order lookup service: {exc}",
         }
+
+    mark_service_online()
 
     if order is None:
         return {"type": "order_not_found", "order_id": order_id}
@@ -492,6 +561,8 @@ def run_prediction_for_pending_order() -> dict:
         result = api.predict(payload)
     except Exception as exc:
         return {"type": "error", "message": f"Prediction failed: {exc}"}
+
+    mark_service_online()
 
     st.session_state.flow_state = "awaiting_order_id"
     st.session_state.pending_order = None
@@ -577,11 +648,11 @@ def render_order_found(content: dict):
 
     st.markdown(
         f"Found order **`{info.get('order_id')}`** — "
-        f"{info.get('customer_name', 'N/A')}"
+        f"{display_text(info.get('customer_name'))}"
     )
     st.markdown(
-        f"🛒 {info.get('product_name', 'N/A')}  •  "
-        f"Status: `{info.get('order_status', 'N/A')}`"
+        f"🛒 {display_text(info.get('product_name'))}  •  "
+        f"Status: `{display_text(info.get('order_status'))}`"
     )
 
     st.markdown("")
@@ -592,7 +663,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">📍 City</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("city", "N/A")}</div>'
+            f'<div class="result-value" style="font-size:18px;">{display_text(info.get("city"))}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -601,7 +672,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">📏 Distance</div>'
-            f'<div class="result-value" style="font-size:18px;">{info.get("distance_km", 0):.1f} km</div>'
+            f'<div class="result-value" style="font-size:18px;">{to_float(info.get("distance_km")):.1f} km</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -610,7 +681,7 @@ def render_order_found(content: dict):
         st.markdown(
             '<div class="result-card">'
             '<div class="result-label">💵 Order Amount</div>'
-            f'<div class="result-value" style="font-size:18px;">₹{info.get("order_amount", 0):.0f}</div>'
+            f'<div class="result-value" style="font-size:18px;">₹{to_float(info.get("order_amount")):.0f}</div>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -645,7 +716,8 @@ def render_prediction_message(content: dict):
     st.markdown(
         f"✅ Confirmed — here's the prediction for order "
         f"**`{info.get('order_id', 'N/A')}`** "
-        f"({info.get('customer_name', 'N/A')}, {info.get('product_name', 'N/A')})."
+        f"({display_text(info.get('customer_name'))}, "
+        f"{display_text(info.get('product_name'))})."
     )
 
     st.markdown("")
@@ -693,8 +765,8 @@ def render_prediction_message(content: dict):
             unsafe_allow_html=True,
         )
 
-    weather = result.get("weather", {})
-    traffic = result.get("traffic", {})
+    weather = result.get("weather") or {}
+    traffic = result.get("traffic") or {}
 
     with st.expander("🌤️ Weather & 🚦 traffic used for this prediction"):
 
@@ -715,16 +787,16 @@ def render_prediction_message(content: dict):
                 f"{humidity:.0f}%" if humidity is not None else "N/A",
             )
         with wc4:
-            st.metric("Rainfall", f"{weather.get('rainfall_mm', 0):.1f} mm")
+            st.metric("Rainfall", f"{to_float(weather.get('rainfall_mm')):.1f} mm")
 
         tc1, tc2, tc3 = st.columns(3)
 
         with tc1:
             st.metric("Traffic Level", format_optional(traffic.get("traffic_level")))
         with tc2:
-            st.metric("Traffic Index", f"{traffic.get('traffic_index', 0):.1f}")
+            st.metric("Traffic Index", f"{to_float(traffic.get('traffic_index')):.1f}")
         with tc3:
-            st.metric("Current Speed", f"{traffic.get('current_speed_kmh', 0):.1f} km/h")
+            st.metric("Current Speed", f"{to_float(traffic.get('current_speed_kmh')):.1f} km/h")
 
     st.caption("Powered by real-time weather and traffic data.")
 
@@ -797,14 +869,42 @@ with st.sidebar:
         with st.expander("📋 Order awaiting confirmation", expanded=True):
             info = st.session_state.pending_order["info"]
             payload = st.session_state.pending_order["payload"]
-            st.write(f"**{info.get('order_id')}** — {info.get('customer_name', 'N/A')}")
-            st.caption(info.get("product_name", ""))
-            st.write(f"📍 {payload.get('city', 'N/A')}  •  📏 {payload.get('distance_km', 0):.1f} km  •  💵 ₹{payload.get('order_amount', 0):.0f}")
+            st.write(f"**{info.get('order_id')}** — {display_text(info.get('customer_name'))}")
+            st.caption(display_text(info.get("product_name"), default=""))
+            st.write(
+                f"📍 {display_text(payload.get('city'))}  •  "
+                f"📏 {to_float(payload.get('distance_km')):.1f} km  •  "
+                f"💵 ₹{to_float(payload.get('order_amount')):.0f}"
+            )
 
-    if service_online(API_BASE_URL):
+    status = get_service_status()
+    state = status["state"]
+
+    if state == "online":
         st.success("🟢 Service online")
+
+    elif state == "degraded":
+        st.warning(
+            "🟡 Backend is reachable, but its health check reported a "
+            "problem. Order lookup may still work."
+        )
+
+    elif state == "waking":
+        st.warning(
+            "🟡 Backend is waking up after being idle. "
+            "This can take up to a minute."
+        )
+
     else:
         st.error("🔴 Service unavailable — please try again shortly.")
+
+    if state != "online":
+        if status.get("detail"):
+            st.caption(f"Details: {status['detail']}")
+
+        if st.button("🔄 Check again", use_container_width=True):
+            get_service_status(force=True)
+            st.rerun()
 
     if st.button("🗑 Clear current chat", use_container_width=True):
         reset_chat()
