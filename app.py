@@ -189,6 +189,15 @@ THEMES = {
         "a_warning": "rgba(255, 183, 77, 0.14)",
         "a_error": "rgba(255, 90, 90, 0.14)",
         "a_info": "rgba(139, 47, 248, 0.18)",
+        # opaque versions (so Streamlit's own light layer can't show through)
+        "s_success": "#12301F",
+        "s_warning": "#3A2E14",
+        "s_error": "#3E1A24",
+        "s_info": "#2A1A45",
+        "t_success": "#7DF0B0",
+        "t_warning": "#FFD58A",
+        "t_error": "#FFB3B3",
+        "t_info": "#E0CCFF",
     },
     "light": {
         "scheme": "light",
@@ -211,6 +220,14 @@ THEMES = {
         "a_warning": "rgba(255, 183, 77, 0.18)",
         "a_error": "rgba(229, 57, 53, 0.10)",
         "a_info": "rgba(139, 47, 248, 0.08)",
+        "s_success": "#E6F6ED",
+        "s_warning": "#FFF3DC",
+        "s_error": "#FDE8E8",
+        "s_info": "#F1E6FE",
+        "t_success": "#0A5C2E",
+        "t_warning": "#7A4A05",
+        "t_error": "#8F1D1D",
+        "t_info": "#4A1B8F",
     },
 }
 
@@ -238,6 +255,14 @@ THEME_VARS = f"""
     --a-warning: {T["a_warning"]};
     --a-error: {T["a_error"]};
     --a-info: {T["a_info"]};
+    --s-success: {T["s_success"]};
+    --s-warning: {T["s_warning"]};
+    --s-error: {T["s_error"]};
+    --s-info: {T["s_info"]};
+    --t-success: {T["t_success"]};
+    --t-warning: {T["t_warning"]};
+    --t-error: {T["t_error"]};
+    --t-info: {T["t_info"]};
     --purple: {ZEPTO_PURPLE};
     --purple-dark: {ZEPTO_PURPLE_DARK};
 }}
@@ -340,18 +365,58 @@ div[data-testid="stExpander"] summary {
     color: var(--ink);
 }
 div[data-testid="stExpander"] summary svg {color: var(--ink);}
+div[data-testid="stExpander"] summary p,
+div[data-testid="stExpander"] summary span {color: var(--ink) !important;}
+div[data-testid="stExpander"] [data-testid="stExpanderDetails"] * {color: var(--ink);}
+div[data-testid="stExpander"] [data-testid="stExpanderDetails"] code {color: var(--accent-text);}
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {color: var(--ink);}
+/* Make "Created by ..." and other plain text always visible */
+[data-testid="stMarkdownContainer"] a {color: var(--accent-text);}
 
-/* ---------- Alerts (success / warning / error / info) ---------- */
-div[data-testid="stAlert"] {
-    background: var(--a-info);
+/* ---------- Alerts (success / warning / error / info) ----------
+   Opaque backgrounds + matching text colour so they are readable in
+   BOTH dark and light mode (Streamlit's own light layer was showing
+   through the translucent colours and hiding the light text). */
+div[data-testid="stAlert"],
+div[data-testid="stAlert"] > div,
+div[data-testid="stAlert"] [data-baseweb="notification"] {
+    background: var(--s-info) !important;
+    background-color: var(--s-info) !important;
+    --alert-text: var(--t-info);
     border-radius: 12px;
+    border: none !important;
 }
-div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) {background: var(--a-success);}
-div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) {background: var(--a-warning);}
-div[data-testid="stAlert"]:has([data-testid="stAlertContentError"])   {background: var(--a-error);}
-div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"])    {background: var(--a-info);}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]),
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) > div,
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) [data-baseweb="notification"] {
+    background: var(--s-success) !important; background-color: var(--s-success) !important; --alert-text: var(--t-success);
+}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]),
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div,
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) [data-baseweb="notification"] {
+    background: var(--s-warning) !important; background-color: var(--s-warning) !important; --alert-text: var(--t-warning);
+}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]),
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div,
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) [data-baseweb="notification"] {
+    background: var(--s-error) !important; background-color: var(--s-error) !important; --alert-text: var(--t-error);
+}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]),
+div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div,
+div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) [data-baseweb="notification"] {
+    background: var(--s-info) !important; background-color: var(--s-info) !important; --alert-text: var(--t-info);
+}
 div[data-testid="stAlert"] p,
-div[data-testid="stAlert"] code {color: var(--ink);}
+div[data-testid="stAlert"] span,
+div[data-testid="stAlert"] li,
+div[data-testid="stAlert"] strong,
+div[data-testid="stAlert"] code,
+div[data-testid="stAlert"] [data-testid="stMarkdownContainer"] p {
+    color: var(--alert-text, var(--ink)) !important;
+}
 
 /* ---------- Branding / welcome ---------- */
 .brand-row {display: flex; align-items: center; gap: 12px; margin-bottom: 4px;}
