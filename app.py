@@ -151,239 +151,322 @@ DEFAULT_PAYLOAD = {
 
 ZEPTO_PURPLE = "#8B2FF8"
 ZEPTO_PURPLE_DARK = "#6E1FD1"
-ZEPTO_INK = "#161119"
-ZEPTO_GREEN = "#0CA750"
-ZEPTO_PEACH = "#FFB74D"
 
-st.markdown(
-    f"""
-    <style>
+# ------------------------------------------------------------
+# THEMES — the app opens in DARK mode. The ◐ button in the
+# top-right switches between dark and light.
+# ------------------------------------------------------------
 
-    /* Keep the header so the sidebar-collapse arrow (top-left) and the
-       ☰ menu (Settings → Theme, for switching Light/Dark) stay usable.
-       Only hide the "Made with Streamlit" footer and the Deploy button. */
-    footer {{visibility: hidden;}}
-    div[data-testid="stToolbarActions"] {{display: none;}}
-    header[data-testid="stHeader"] {{
-        background: transparent;
-    }}
+if "theme" not in st.session_state:
+    st.session_state.theme = "dark"          # default on first open
 
-    .stApp {{
-        background: #FAF8FD;
-        color: {ZEPTO_INK};
-        font-family: "Poppins", "Segoe UI", sans-serif;
-    }}
 
-    /* The fixed bottom bar Streamlit wraps the chat input in defaults to
-       the theme's base background; pin it to match our light theme so it
-       doesn't show up as a stray black strip behind the input box. */
-    div[data-testid="stBottom"] > div {{
-        background: #FAF8FD;
-    }}
+def toggle_theme():
+    st.session_state.theme = (
+        "light" if st.session_state.theme == "dark" else "dark"
+    )
 
-    div[data-testid="stBottomBlockContainer"] {{
-        background: #FAF8FD;
-        padding-top: 8px;
-    }}
 
-    h1, h2, h3, .brand-title, .welcome-title {{
-        font-family: "Poppins", "Segoe UI", sans-serif;
-        letter-spacing: -0.01em;
-    }}
+THEMES = {
+    "dark": {
+        "scheme": "dark",
+        "bg": "#0F0B14",
+        "sidebar": "#150F1C",
+        "surface": "#1B1424",
+        "surface_alt": "#231A2E",
+        "border": "#32254A",
+        "ink": "#F4EFFA",
+        "muted": "#A99DB8",
+        "faint": "#8A7E99",
+        "accent_text": "#C9A2FF",
+        "code_bg": "#2B1F3D",
+        "shadow": "rgba(0, 0, 0, 0.35)",
+        "green": "#34D17F",
+        "warn_text": "#FFC266",
+        "pill_ok_bg": "rgba(52, 209, 127, 0.15)",
+        "pill_warn_bg": "rgba(255, 183, 77, 0.16)",
+        "a_success": "rgba(52, 209, 127, 0.14)",
+        "a_warning": "rgba(255, 183, 77, 0.14)",
+        "a_error": "rgba(255, 90, 90, 0.14)",
+        "a_info": "rgba(139, 47, 248, 0.18)",
+    },
+    "light": {
+        "scheme": "light",
+        "bg": "#FAF8FD",
+        "sidebar": "#FFFFFF",
+        "surface": "#FFFFFF",
+        "surface_alt": "#FBF7FF",
+        "border": "#EFE6FC",
+        "ink": "#161119",
+        "muted": "#7A6E88",
+        "faint": "#A79BB3",
+        "accent_text": ZEPTO_PURPLE_DARK,
+        "code_bg": "#F1E6FE",
+        "shadow": "rgba(139, 47, 248, 0.08)",
+        "green": "#0CA750",
+        "warn_text": "#B9720A",
+        "pill_ok_bg": "rgba(12, 167, 80, 0.12)",
+        "pill_warn_bg": "rgba(255, 183, 77, 0.18)",
+        "a_success": "rgba(12, 167, 80, 0.10)",
+        "a_warning": "rgba(255, 183, 77, 0.18)",
+        "a_error": "rgba(229, 57, 53, 0.10)",
+        "a_info": "rgba(139, 47, 248, 0.08)",
+    },
+}
 
-    section[data-testid="stSidebar"] {{
-        background: #FFFFFF;
-        border-right: 1px solid #EFE6FC;
-    }}
+T = THEMES[st.session_state.theme]
 
-    section[data-testid="stSidebar"] .stButton > button {{
-        width: 100%;
-        background: {ZEPTO_PURPLE};
-        color: #FFFFFF;
-        border: none;
-        border-radius: 999px;
-        font-weight: 700;
-        text-align: center;
-        padding: 10px 16px;
-        box-shadow: 0 4px 14px rgba(139, 47, 248, 0.28);
-    }}
+THEME_VARS = f"""
+:root {{
+    color-scheme: {T["scheme"]};
+    --bg: {T["bg"]};
+    --sidebar: {T["sidebar"]};
+    --surface: {T["surface"]};
+    --surface-alt: {T["surface_alt"]};
+    --border: {T["border"]};
+    --ink: {T["ink"]};
+    --muted: {T["muted"]};
+    --faint: {T["faint"]};
+    --accent-text: {T["accent_text"]};
+    --code-bg: {T["code_bg"]};
+    --shadow: {T["shadow"]};
+    --green: {T["green"]};
+    --warn-text: {T["warn_text"]};
+    --pill-ok-bg: {T["pill_ok_bg"]};
+    --pill-warn-bg: {T["pill_warn_bg"]};
+    --a-success: {T["a_success"]};
+    --a-warning: {T["a_warning"]};
+    --a-error: {T["a_error"]};
+    --a-info: {T["a_info"]};
+    --purple: {ZEPTO_PURPLE};
+    --purple-dark: {ZEPTO_PURPLE_DARK};
+}}
+"""
 
-    section[data-testid="stSidebar"] .stButton > button:hover {{
-        background: {ZEPTO_PURPLE_DARK};
-        color: #FFFFFF;
-    }}
+STATIC_CSS = """
+/* Keep the header so the sidebar-collapse arrow (top-left) stays usable.
+   Only hide the "Made with Streamlit" footer and the Deploy button. */
+footer {visibility: hidden;}
+div[data-testid="stToolbarActions"] {display: none;}
+header[data-testid="stHeader"] {background: transparent;}
+header[data-testid="stHeader"] button,
+header[data-testid="stHeader"] svg,
+button[data-testid="stExpandSidebarButton"],
+button[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"] button {
+    color: var(--ink) !important;
+}
 
-    section[data-testid="stSidebar"] div[data-testid="stExpander"] {{
-        border: 1px solid #EFE6FC;
-        border-radius: 12px;
-        background: #FDFBFF;
-    }}
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Poppins", "Segoe UI", sans-serif;
+}
 
-    .brand-row {{
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 4px;
-    }}
+/* Bottom bar that wraps the chat input */
+div[data-testid="stBottom"],
+div[data-testid="stBottom"] > div,
+div[data-testid="stBottomBlockContainer"] {
+    background: var(--bg);
+}
+div[data-testid="stBottomBlockContainer"] {padding-top: 8px;}
 
-    .brand-circle {{
-        width: 36px;
-        height: 36px;
-        border-radius: 11px;
-        background: {ZEPTO_PURPLE};
-        box-shadow: 0 4px 14px rgba(139, 47, 248, 0.35);
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-    }}
+/* ---------- Text colours (both themes) ---------- */
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stMarkdownContainer"] h4,
+[data-testid="stMarkdownContainer"] strong,
+.stApp label,
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] * {
+    color: var(--ink);
+}
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] *,
+[data-testid="stMetricLabel"],
+[data-testid="stMetricLabel"] * {
+    color: var(--muted) !important;
+}
+[data-testid="stMarkdownContainer"] code {
+    background: var(--code-bg);
+    color: var(--accent-text);
+    border-radius: 6px;
+    padding: 1px 6px;
+}
 
-    .brand-circle.lg {{
-        width: 84px;
-        height: 84px;
-        border-radius: 24px;
-        margin: 0 auto 18px auto;
-        font-size: 40px;
-    }}
+h1, h2, h3, .brand-title, .welcome-title {
+    font-family: "Poppins", "Segoe UI", sans-serif;
+    letter-spacing: -0.01em;
+}
 
-    .brand-title {{
-        font-size: 19px;
-        font-weight: 800;
-        color: {ZEPTO_INK};
-        margin: 0;
-    }}
+/* ---------- Sidebar ---------- */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div {
+    background: var(--sidebar);
+}
+section[data-testid="stSidebar"] {border-right: 1px solid var(--border);}
 
-    .brand-sub {{
-        font-size: 12.5px;
-        color: #7A6E88;
-        margin: 0;
-    }}
+section[data-testid="stSidebar"] .stButton > button {
+    width: 100%;
+    background: var(--purple);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 999px;
+    font-weight: 700;
+    text-align: center;
+    padding: 10px 16px;
+    box-shadow: 0 4px 14px rgba(139, 47, 248, 0.28);
+}
+section[data-testid="stSidebar"] .stButton > button p {color: #FFFFFF;}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: var(--purple-dark);
+    color: #FFFFFF;
+}
 
-    .welcome-wrap {{
-        text-align: center;
-        margin-top: 7vh;
-    }}
+/* ---------- Expanders ---------- */
+div[data-testid="stExpander"] {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+div[data-testid="stExpander"] details,
+div[data-testid="stExpander"] summary {
+    background: transparent;
+    color: var(--ink);
+}
+div[data-testid="stExpander"] summary svg {color: var(--ink);}
 
-    .welcome-title {{
-        font-size: 28px;
-        font-weight: 800;
-        color: {ZEPTO_INK};
-        margin-bottom: 6px;
-    }}
+/* ---------- Alerts (success / warning / error / info) ---------- */
+div[data-testid="stAlert"] {
+    background: var(--a-info);
+    border-radius: 12px;
+}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) {background: var(--a-success);}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) {background: var(--a-warning);}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"])   {background: var(--a-error);}
+div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"])    {background: var(--a-info);}
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] code {color: var(--ink);}
 
-    .welcome-sub {{
-        font-size: 15px;
-        color: #7A6E88;
-        max-width: 580px;
-        margin: 0 auto;
-    }}
+/* ---------- Branding / welcome ---------- */
+.brand-row {display: flex; align-items: center; gap: 12px; margin-bottom: 4px;}
 
-    .welcome-sub code {{
-        background: #F1E6FE;
-        color: {ZEPTO_PURPLE_DARK};
-        padding: 1px 6px;
-        border-radius: 6px;
-    }}
+.brand-circle {
+    width: 36px; height: 36px; border-radius: 11px;
+    background: var(--purple);
+    box-shadow: 0 4px 14px rgba(139, 47, 248, 0.35);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+}
+.brand-circle.lg {
+    width: 84px; height: 84px; border-radius: 24px;
+    margin: 0 auto 18px auto; font-size: 40px;
+}
 
-    .example-box {{
-        background: #FFFFFF;
-        border: 1px solid #EFE6FC;
-        border-radius: 14px;
-        padding: 14px 16px;
-        font-family: "SFMono-Regular", Consolas, monospace;
-        font-size: 12.5px;
-        color: #56495F;
-        max-height: 220px;
-        overflow-y: auto;
-        text-align: left;
-        margin-top: 22px;
-        box-shadow: 0 2px 10px rgba(139, 47, 248, 0.06);
-    }}
+.brand-title {font-size: 19px; font-weight: 800; color: var(--ink); margin: 0;}
+.brand-sub {font-size: 12.5px; color: var(--muted); margin: 0;}
 
-    div[data-testid="stChatMessage"] {{
-        background: #FFFFFF;
-        border: 1px solid #EFE6FC;
-        border-radius: 16px;
-        padding: 6px 8px;
-        box-shadow: 0 2px 10px rgba(139, 47, 248, 0.05);
-    }}
+.welcome-wrap {text-align: center; margin-top: 7vh;}
+.welcome-title {font-size: 28px; font-weight: 800; color: var(--ink); margin-bottom: 6px;}
+.welcome-sub {font-size: 15px; color: var(--muted); max-width: 580px; margin: 0 auto;}
+.welcome-sub code {
+    background: var(--code-bg);
+    color: var(--accent-text);
+    padding: 1px 6px;
+    border-radius: 6px;
+}
 
-    .result-card {{
-        background: #FBF7FF;
-        border: 1px solid #EFE6FC;
-        border-radius: 14px;
-        padding: 14px 16px;
-        text-align: center;
-    }}
+.example-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-height: 220px;
+    overflow-y: auto;
+    text-align: left;
+    margin-top: 22px;
+    box-shadow: 0 2px 10px var(--shadow);
+}
 
-    .result-label {{
-        color: #7A6E88;
-        font-size: 12.5px;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }}
+/* ---------- Chat ---------- */
+div[data-testid="stChatMessage"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 6px 8px;
+    box-shadow: 0 2px 10px var(--shadow);
+}
 
-    .result-value {{
-        color: {ZEPTO_PURPLE_DARK};
-        font-size: 22px;
-        font-weight: 800;
-    }}
+.result-card {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    text-align: center;
+}
+.result-label {color: var(--muted); font-size: 12.5px; font-weight: 600; margin-bottom: 4px;}
+.result-value {color: var(--accent-text); font-size: 22px; font-weight: 800;}
 
-    .pill {{
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 999px;
-        font-size: 12.5px;
-        font-weight: 700;
-    }}
+.pill {display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 700;}
+.pill-ok {background: var(--pill-ok-bg); color: var(--green);}
+.pill-warn {background: var(--pill-warn-bg); color: var(--warn-text);}
 
-    .pill-ok {{ background: rgba(12, 167, 80, 0.12); color: {ZEPTO_GREEN}; }}
-    .pill-warn {{ background: rgba(255, 183, 77, 0.18); color: #B9720A; }}
+.diff-row {font-size: 12.5px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; margin-bottom: 2px;}
+.diff-key {color: var(--accent-text); font-weight: 650;}
+.diff-old {color: var(--faint); text-decoration: line-through;}
+.diff-new {color: var(--green); font-weight: 700;}
 
-    .diff-row {{
-        font-size: 12.5px;
-        color: #56495F;
-        font-family: "SFMono-Regular", Consolas, monospace;
-        margin-bottom: 2px;
-    }}
+div[data-testid="stChatInput"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 2px 10px var(--shadow);
+    max-width: 900px;
+    margin: 0 auto;
+}
+div[data-testid="stChatInput"] > div,
+div[data-testid="stChatInput"] textarea {
+    background: var(--surface) !important;
+    color: var(--ink) !important;
+}
+div[data-testid="stChatInput"] textarea::placeholder {
+    color: var(--faint) !important;
+    opacity: 1 !important;
+}
 
-    .diff-key {{ color: {ZEPTO_PURPLE_DARK}; font-weight: 650; }}
-    .diff-old {{ color: #A79BB3; text-decoration: line-through; }}
-    .diff-new {{ color: {ZEPTO_GREEN}; font-weight: 700; }}
+.stButton > button[kind="primary"],
+button[data-testid="stChatInputSubmitButton"] {
+    background: var(--purple) !important;
+    border-color: var(--purple) !important;
+}
+button[data-testid="stChatInputSubmitButton"] svg {fill: #FFFFFF !important;}
 
-    div[data-testid="stChatInput"] {{
-        background: #FFFFFF;
-        border: 1px solid #EFE6FC;
-        border-radius: 999px;
-        box-shadow: 0 2px 10px rgba(139, 47, 248, 0.06);
-        max-width: 900px;
-        margin: 0 auto;
-    }}
+/* ---------- ◐ Theme toggle button (top-right) ---------- */
+.st-key-theme_toggle {display: flex; justify-content: flex-end;}
+.st-key-theme_toggle button {
+    width: 44px; height: 44px; min-height: 44px;
+    padding: 0;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 10px var(--shadow);
+}
+.st-key-theme_toggle button p {font-size: 20px; line-height: 1; color: var(--ink);}
+.st-key-theme_toggle button:hover {border-color: var(--purple);}
+"""
 
-    div[data-testid="stChatInput"] textarea {{
-        background: #FFFFFF !important;
-        color: {ZEPTO_INK} !important;
-    }}
+css = "<style>" + THEME_VARS + STATIC_CSS + "</style>"
 
-    div[data-testid="stChatInput"] textarea::placeholder {{
-        color: #A79BB3 !important;
-        opacity: 1 !important;
-    }}
-
-    .stButton > button[kind="primary"], button[data-testid="stChatInputSubmitButton"] {{
-        background: {ZEPTO_PURPLE} !important;
-        border-color: {ZEPTO_PURPLE} !important;
-    }}
-
-    button[data-testid="stChatInputSubmitButton"] svg {{
-        fill: #FFFFFF !important;
-    }}
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(css, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -915,14 +998,29 @@ with st.sidebar:
 # HEADER (always visible)
 # ============================================================
 
-st.markdown(
-    '<div class="brand-row">'
-    '<div class="brand-circle">⚡</div>'
-    '<div><p class="brand-title">Welcome to Zepto Smart Commerce AI</p>'
-    '<p class="brand-sub">Delivery charge, ETA & rider-acceptance predictions</p></div>'
-    "</div>",
-    unsafe_allow_html=True,
-)
+head_left, head_right = st.columns([0.88, 0.12], vertical_alignment="center")
+
+with head_left:
+    st.markdown(
+        '<div class="brand-row">'
+        '<div class="brand-circle">⚡</div>'
+        '<div><p class="brand-title">Welcome to Zepto Smart Commerce AI</p>'
+        '<p class="brand-sub">Delivery charge, ETA & rider-acceptance predictions</p></div>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+with head_right:
+    st.button(
+        "◐",
+        key="theme_toggle",
+        on_click=toggle_theme,
+        help=(
+            "Switch to light mode"
+            if st.session_state.theme == "dark"
+            else "Switch to dark mode"
+        ),
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
