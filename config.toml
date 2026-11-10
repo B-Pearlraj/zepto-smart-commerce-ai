@@ -1,0 +1,4 @@
+[theme]
+# Opens in dark mode by default (the ◐ button in the app switches to light)
+base = "dark"
+primaryColor = "#8B2FF8"
