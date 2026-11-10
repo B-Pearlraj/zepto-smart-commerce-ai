@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Chatbot documents - admin</title>
+<style>
+  :root {
+    --brand: #8b2ff8;
+    --brand-dark: #6e1fd1;
+    --brand-soft: #f1e6fe;
+    --ink: #161119;
+    --muted: #6f6380;
+    --bg: #faf8fd;
+    --surface: #ffffff;
+    --border: #e7dcf6;
+    --ok: #0a7f43;
+    --ok-bg: #e3f6ec;
+    --warn: #9a5b00;
+    --warn-bg: #fff2dc;
+    --danger: #b42318;
+    --danger-bg: #fdeceb;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --brand: #a45bff;
+      --brand-dark: #c49bff;
+      --brand-soft: #31214a;
+      --ink: #f1edf7;
+      --muted: #a79bb8;
+      --bg: #141119;
+      --surface: #1e1a25;
+      --border: #332d3f;
+      --ok: #5ad38d;
+      --ok-bg: #123324;
+      --warn: #f3b95f;
+      --warn-bg: #3a2b0e;
+      --danger: #ff8d82;
+      --danger-bg: #3d1a17;
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  h1, h2, h3 { margin: 0; line-height: 1.25; letter-spacing: -0.01em; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; }
+  p { margin: 0; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  button, input, textarea, select { font: inherit; color: inherit; }
+
+  :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: var(--brand);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { background: var(--brand-dark); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.secondary { background: transparent; color: var(--brand-dark); border-color: var(--border); }
+  .btn.secondary:hover:not(:disabled) { background: var(--brand-soft); }
+  .btn.danger { background: transparent; color: var(--danger); border-color: var(--border); padding: 6px 14px; }
+  .btn.danger:hover:not(:disabled) { background: var(--danger-bg); }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-weight: 600; font-size: 13.5px; }
+  .field .hint { font-size: 12.5px; color: var(--muted); }
+
+  input[type="text"], input[type="password"], input[type="url"], textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  textarea { min-height: 150px; resize: vertical; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+  }
+
+  .stack { display: flex; flex-direction: column; gap: 20px; }
+
+  /* --------------------------------------------------------------- login */
+
+  #login-view { max-width: 420px; margin: 12vh auto 0; }
+  #login-view .panel { display: flex; flex-direction: column; gap: 16px; }
+  #login-view details summary { cursor: pointer; color: var(--muted); font-size: 13.5px; }
+  #login-view details .field { margin-top: 10px; }
+
+  /* ----------------------------------------------------------- dashboard */
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .topbar p { color: var(--muted); font-size: 13.5px; }
+  .topbar .actions { display: flex; gap: 8px; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .stat { padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .stat strong { display: block; font-size: 26px; line-height: 1.1; color: var(--brand-dark); }
+  .stat span { font-size: 13px; color: var(--muted); }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+  .tab {
+    padding: 7px 16px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+  .tab[aria-selected="true"] { background: var(--brand-soft); color: var(--brand-dark); border-color: var(--brand); }
+
+  .dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 28px 16px;
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--brand); background: var(--brand-soft); }
+  .dropzone strong { font-size: 15px; }
+  .dropzone span { font-size: 13px; color: var(--muted); }
+
+  .queue { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .queue li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: 10px; background: var(--bg); font-size: 13.5px; }
+  .queue .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue .state { flex: 0 0 auto; color: var(--muted); }
+  .queue li[data-state="done"] .state { color: var(--ok); }
+  .queue li[data-state="error"] .state { color: var(--danger); }
+
+  .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-top: 14px; }
+  .row .field { flex: 1 1 260px; }
+
+  .message {
+    display: none;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+  }
+  .message.show { display: block; }
+  .message.ok { background: var(--ok-bg); color: var(--ok); }
+  .message.error { background: var(--danger-bg); color: var(--danger); }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; }
+  th, td { text-align: left; padding: 11px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 14px; }
+  th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  td.title { font-weight: 600; max-width: 280px; overflow-wrap: anywhere; }
+  td.title small { display: block; font-weight: 400; color: var(--muted); }
+  td.num { white-space: nowrap; color: var(--muted); }
+
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track {
+    position: relative; width: 38px; height: 22px; border-radius: 999px;
+    background: var(--border); transition: background 0.15s;
+  }
+  .switch .track::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: transform 0.15s;
+  }
+  .switch input:checked + .track { background: var(--brand); }
+  .switch input:checked + .track::after { transform: translateX(16px); }
+  .switch input:focus-visible + .track { outline: 3px solid var(--brand); outline-offset: 2px; }
+  .switch .label { font-size: 13px; min-width: 52px; }
+
+  .empty { padding: 26px 8px; text-align: center; color: var(--muted); }
+
+  .unanswered { list-style: none; margin: 0; padding: 0; }
+  .unanswered li { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .unanswered time { flex: 0 0 auto; color: var(--muted); font-size: 12.5px; }
+
+  .answer-box { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--brand-soft); white-space: pre-wrap; overflow-wrap: anywhere; display: none; }
+  .answer-box.show { display: block; }
+  .answer-box small { display: block; margin-top: 6px; color: var(--muted); }
+
+  .section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .section-head p { color: var(--muted); font-size: 13px; }
+
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ======================================================== sign in -->
+<main id="login-view" class="wrap">
+  <form class="panel" id="login-form" autocomplete="off">
+    <div>
+      <h1>Chatbot admin</h1>
+      <p style="color:var(--muted);margin-top:4px">Upload the documents the chatbot answers from.</p>
+    </div>
+
+    <div class="field">
+      <label for="token">Admin token</label>
+      <input id="token" type="password" required autocomplete="current-password">
+      <span class="hint">The value of ADMIN_TOKEN set on your server.</span>
+    </div>
+
+    <details id="server-details">
+      <summary>Server address</summary>
+      <div class="field">
+        <label for="server-url">API server URL</label>
+        <input id="server-url" type="url" placeholder="https://your-api.onrender.com">
+        <span class="hint">Leave as is when this page is opened from the API server.</span>
+      </div>
+    </details>
+
+    <div class="message" id="login-message" role="alert"></div>
+    <button class="btn" type="submit" id="login-btn">Sign in</button>
+  </form>
+</main>
+
+<!-- ====================================================== dashboard -->
+<div id="app-view" class="wrap" hidden>
+
+  <div class="topbar">
+    <div>
+      <h1>Chatbot documents</h1>
+      <p id="server-label"></p>
+    </div>
+    <div class="actions">
+      <button class="btn secondary" type="button" id="refresh-btn">Refresh</button>
+      <button class="btn secondary" type="button" id="logout-btn">Sign out</button>
+    </div>
+  </div>
+
+  <div class="stack">
+
+    <section class="stats" aria-label="Summary" id="stats"></section>
+
+    <!-- ------------------------------------------------------ add -->
+    <section class="panel">
+      <div class="tabs" role="tablist" aria-label="How to add a document">
+        <button class="tab" role="tab" id="tab-file" aria-selected="true" aria-controls="pane-file" type="button">Upload files</button>
+        <button class="tab" role="tab" id="tab-text" aria-selected="false" aria-controls="pane-text" type="button">Paste text</button>
+      </div>
+
+      <div id="pane-file" role="tabpanel" aria-labelledby="tab-file">
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose files to upload">
+          <strong>Drop files here or click to choose</strong>
+          <span>PDF, Word (.docx), TXT, Markdown, CSV, JSON - up to 10 MB each</span>
+        </div>
+        <input id="file-input" type="file" multiple hidden
+               accept=".pdf,.docx,.txt,.md,.csv,.json,.log">
+        <ul class="queue" id="queue"></ul>
+
+        <div class="row">
+          <div class="field">
+            <label for="file-title">Title (optional)</label>
+            <input id="file-title" type="text" maxlength="200" placeholder="Defaults to the file name">
+            <span class="hint">Used when you upload a single file. This is what visitors see as the source.</span>
+          </div>
+          <button class="btn" type="button" id="upload-btn" disabled>Upload</button>
+        </div>
+      </div>
+
+      <div id="pane-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+        <div class="stack" style="gap:14px">
+          <div class="field">
+            <label for="text-title">Title</label>
+            <input id="text-title" type="text" maxlength="200" placeholder="e.g. Refund policy">
+          </div>
+          <div class="field">
+            <label for="text-content">Content</label>
+            <textarea id="text-content" placeholder="Paste the document text here"></textarea>
+          </div>
+          <div><button class="btn" type="button" id="text-btn">Add document</button></div>
+        </div>
+      </div>
+
+      <div class="message" id="add-message" role="status"></div>
+    </section>
+
+    <!-- --------------------------------------------------- documents -->
+    <section class="panel">
+      <div class="section-head">
+        <h2>Uploaded documents</h2>
+        <p>Switch a document off to stop the chatbot using it, without deleting it.</p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Document</th>
+              <th scope="col">Size</th>
+              <th scope="col">Sections</th>
+              <th scope="col">Added</th>
+              <th scope="col">Used by chatbot</th>
+              <th scope="col"><span class="sr-only" style="position:absolute;left:-9999px">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="doc-rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="doc-empty" hidden>No documents yet. Upload one above and the chatbot can start answering from it.</div>
+    </section>
+
+    <!-- ------------------------------------------------------- test -->
+    <section class="panel">
+      <div class="section-head">
+        <h2>Try a question</h2>
+        <p>Runs the same search the chat widget uses.</p>
+      </div>
+      <form class="row" id="test-form" style="margin-top:0">
+        <div class="field">
+          <label for="test-question" class="sr-only" style="position:absolute;left:-9999px">Question</label>
+          <input id="test-question" type="text" maxlength="500" placeholder="Ask something your documents should answer">
+        </div>
+        <button class="btn secondary" type="submit" id="test-btn">Ask</button>
+      </form>
+      <div class="answer-box" id="answer-box" role="status"></div>
+    </section>
+
+    <!-- ------------------------------------------------- unanswered -->
+    <section class="panel">
+      <div class="section-head">
+        <h2>Questions the documents couldn't answer</h2>
+        <p>Add a document that covers these and the chatbot will start answering them.</p>
+      </div>
+      <ul class="unanswered" id="unanswered"></ul>
+      <div class="empty" id="unanswered-empty" hidden>Nothing here. Every question so far was answered.</div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------- state
+  var TOKEN_KEY = "zbot_admin_token";   // sessionStorage: cleared when the tab closes
+  var SERVER_KEY = "zbot_admin_server"; // localStorage: not secret
+
+  var DEFAULT_SERVER = "https://zepto-smart-commerce-ai.onrender.com";
+  var ALLOWED = [".pdf", ".docx", ".txt", ".md", ".csv", ".json", ".log"];
+  var MAX_BYTES = 10 * 1024 * 1024;
+
+  var token = "";
+  var server = "";
+  var pendingFiles = [];
+
+  function $(id) { return document.getElementById(id); }
+
+  function safeGet(store, key) {
+    try { return window[store].getItem(key); } catch (e) { return null; }
+  }
+  function safeSet(store, key, value) {
+    try { window[store].setItem(key, value); } catch (e) { /* ignore */ }
+  }
+  function safeRemove(store, key) {
+    try { window[store].removeItem(key); } catch (e) { /* ignore */ }
+  }
+
+  function defaultServer() {
+    var fromQuery = new URLSearchParams(location.search).get("api");
+    if (fromQuery) { return fromQuery; }
+    if (location.protocol === "http:" || location.protocol === "https:") {
+      return location.origin;
+    }
+    return DEFAULT_SERVER;
+  }
+
+  // ------------------------------------------------------------- helpers
+  function showMessage(id, text, kind) {
+    var box = $(id);
+    box.textContent = text || "";
+    box.className = "message" + (text ? " show " + kind : "");
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === null || bytes === undefined) { return "-"; }
+    if (bytes < 1024) { return bytes + " B"; }
+    if (bytes < 1024 * 1024) { return (bytes / 1024).toFixed(0) + " KB"; }
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function formatDate(iso) {
+    if (!iso) { return "-"; }
+    var date = new Date(iso);
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function formatDateTime(iso) {
+    var date = new Date(iso);
+    return date.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  async function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({ "X-Admin-Token": token }, options.headers || {});
+
+    var response;
+
+    try {
+      response = await fetch(server + path, options);
+    } catch (e) {
+      throw new Error("Can't reach the server. If it was idle it may still be starting - try again in a minute.");
+    }
+
+    var data = null;
+    try { data = await response.json(); } catch (e) { data = null; }
+
+    if (!response.ok) {
+      var detail = data && data.detail;
+      var message = typeof detail === "string"
+        ? detail
+        : Array.isArray(detail) && detail[0] && detail[0].msg
+          ? detail[0].msg
+          : "Request failed (HTTP " + response.status + ").";
+      var error = new Error(message);
+      error.status = response.status;
+      throw error;
+    }
+
+    return data;
+  }
+
+  // ---------------------------------------------------------------- login
+  function showApp() {
+    $("login-view").hidden = true;
+    $("app-view").hidden = false;
+    $("server-label").textContent = "Connected to " + server;
+    refreshAll();
+  }
+
+  function showLogin(message) {
+    $("app-view").hidden = true;
+    $("login-view").hidden = false;
+    showMessage("login-message", message || "", "error");
+  }
+
+  $("login-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+
+    token = $("token").value.trim();
+    server = $("server-url").value.trim().replace(/\/+$/, "");
+
+    if (!token || !server) { return; }
+
+    var button = $("login-btn");
+    button.disabled = true;
+    button.textContent = "Signing in...";
+    showMessage("login-message", "", "error");
+
+    try {
+      await api("/chatbot/admin/verify");
+      safeSet("sessionStorage", TOKEN_KEY, token);
+      safeSet("localStorage", SERVER_KEY, server);
+      showApp();
+    } catch (error) {
+      token = "";
+      showMessage(
+        "login-message",
+        error.status === 401 ? "That token isn't right. Check ADMIN_TOKEN on the server." : error.message,
+        "error"
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = "Sign in";
+    }
+  });
+
+  $("logout-btn").addEventListener("click", function () {
+    safeRemove("sessionStorage", TOKEN_KEY);
+    token = "";
+    $("token").value = "";
+    showLogin("");
+  });
+
+  // ------------------------------------------------------------ dashboard
+  async function loadStats() {
+    var data = await api("/chatbot/admin/stats");
+    var s = data.stats;
+
+    var items = [
+      [s.documents, "Documents"],
+      [s.active_documents, "In use"],
+      [s.chunks, "Searchable sections"],
+      [s.questions, "Questions asked"],
+      [s.unanswered_questions, "Not answered"]
+    ];
+
+    var box = $("stats");
+    box.textContent = "";
+
+    items.forEach(function (item) {
+      var stat = document.createElement("div");
+      stat.className = "stat";
+      var number = document.createElement("strong");
+      number.textContent = Number(item[0]).toLocaleString();
+      var label = document.createElement("span");
+      label.textContent = item[1];
+      stat.appendChild(number);
+      stat.appendChild(label);
+      box.appendChild(stat);
+    });
+  }
+
+  async function loadDocuments() {
+    var data = await api("/chatbot/admin/documents");
+    var body = $("doc-rows");
+    body.textContent = "";
+
+    $("doc-empty").hidden = data.documents.length > 0;
+
+    data.documents.forEach(function (doc) {
+      var tr = document.createElement("tr");
+
+      var titleCell = document.createElement("td");
+      titleCell.className = "title";
+      titleCell.textContent = doc.title;
+      if (doc.filename && doc.filename !== doc.title) {
+        var small = document.createElement("small");
+        small.textContent = doc.filename;
+        titleCell.appendChild(small);
+      }
+      tr.appendChild(titleCell);
+
+      [formatBytes(doc.file_size_bytes), String(doc.chunk_count), formatDate(doc.created_at)].forEach(function (text) {
+        var td = document.createElement("td");
+        td.className = "num";
+        td.textContent = text;
+        tr.appendChild(td);
+      });
+
+      // on / off switch
+      var switchCell = document.createElement("td");
+      var switchLabel = document.createElement("label");
+      switchLabel.className = "switch";
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = doc.is_active;
+      checkbox.setAttribute("aria-label", "Use " + doc.title + " in the chatbot");
+      var track = document.createElement("span");
+      track.className = "track";
+      var stateLabel = document.createElement("span");
+      stateLabel.className = "label";
+      stateLabel.textContent = doc.is_active ? "On" : "Off";
+      switchLabel.appendChild(checkbox);
+      switchLabel.appendChild(track);
+      switchLabel.appendChild(stateLabel);
+      switchCell.appendChild(switchLabel);
+      tr.appendChild(switchCell);
+
+      checkbox.addEventListener("change", async function () {
+        checkbox.disabled = true;
+        try {
+          await api("/chatbot/admin/documents/" + doc.id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ is_active: checkbox.checked })
+          });
+          stateLabel.textContent = checkbox.checked ? "On" : "Off";
+          loadStats().catch(function () {});
+        } catch (error) {
+          checkbox.checked = !checkbox.checked;
+          showMessage("add-message", error.message, "error");
+        } finally {
+          checkbox.disabled = false;
+        }
+      });
+
+      // delete
+      var actionCell = document.createElement("td");
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn danger";
+      del.textContent = "Delete";
+      del.setAttribute("aria-label", "Delete " + doc.title);
+      del.addEventListener("click", async function () {
+        if (!window.confirm("Delete \"" + doc.title + "\"? The chatbot will stop answering from it. This can't be undone.")) {
+          return;
+        }
+        del.disabled = true;
+        try {
+          await api("/chatbot/admin/documents/" + doc.id, { method: "DELETE" });
+          showMessage("add-message", "Deleted \"" + doc.title + "\".", "ok");
+          refreshAll();
+        } catch (error) {
+          del.disabled = false;
+          showMessage("add-message", error.message, "error");
+        }
+      });
+      actionCell.appendChild(del);
+      tr.appendChild(actionCell);
+
+      body.appendChild(tr);
+    });
+  }
+
+  async function loadUnanswered() {
+    var data = await api("/chatbot/admin/unanswered?limit=30");
+    var list = $("unanswered");
+    list.textContent = "";
+
+    $("unanswered-empty").hidden = data.questions.length > 0;
+
+    data.questions.forEach(function (item) {
+      var li = document.createElement("li");
+      var question = document.createElement("span");
+      question.textContent = item.question;
+      var time = document.createElement("time");
+      time.dateTime = item.created_at;
+      time.textContent = formatDateTime(item.created_at);
+      li.appendChild(question);
+      li.appendChild(time);
+      list.appendChild(li);
+    });
+  }
+
+  async function refreshAll() {
+    try {
+      await Promise.all([loadStats(), loadDocuments(), loadUnanswered()]);
+    } catch (error) {
+      if (error.status === 401) {
+        safeRemove("sessionStorage", TOKEN_KEY);
+        showLogin("Your session expired. Sign in again.");
+      } else {
+        showMessage("add-message", error.message, "error");
+      }
+    }
+  }
+
+  $("refresh-btn").addEventListener("click", refreshAll);
+
+  // ----------------------------------------------------------------- tabs
+  function selectTab(which) {
+    var isFile = which === "file";
+    $("tab-file").setAttribute("aria-selected", String(isFile));
+    $("tab-text").setAttribute("aria-selected", String(!isFile));
+    $("pane-file").hidden = !isFile;
+    $("pane-text").hidden = isFile;
+    showMessage("add-message", "", "ok");
+  }
+  $("tab-file").addEventListener("click", function () { selectTab("file"); });
+  $("tab-text").addEventListener("click", function () { selectTab("text"); });
+
+  // --------------------------------------------------------- file upload
+  var dropzone = $("dropzone");
+  var fileInput = $("file-input");
+
+  function extensionOf(name) {
+    var dot = name.lastIndexOf(".");
+    return dot === -1 ? "" : name.slice(dot).toLowerCase();
+  }
+
+  function renderQueue() {
+    var queue = $("queue");
+    queue.textContent = "";
+
+    pendingFiles.forEach(function (entry) {
+      var li = document.createElement("li");
+      li.setAttribute("data-state", entry.state);
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = entry.file.name + " (" + formatBytes(entry.file.size) + ")";
+      var state = document.createElement("span");
+      state.className = "state";
+      state.textContent = entry.note;
+      li.appendChild(name);
+      li.appendChild(state);
+      queue.appendChild(li);
+    });
+
+    $("upload-btn").disabled = !pendingFiles.some(function (e) { return e.state === "ready"; });
+  }
+
+  function addFiles(fileList) {
+    Array.prototype.forEach.call(fileList, function (file) {
+      var entry = { file: file, state: "ready", note: "Ready" };
+
+      if (ALLOWED.indexOf(extensionOf(file.name)) === -1) {
+        entry.state = "error";
+        entry.note = "Unsupported type";
+      } else if (file.size > MAX_BYTES) {
+        entry.state = "error";
+        entry.note = "Over 10 MB";
+      } else if (file.size === 0) {
+        entry.state = "error";
+        entry.note = "Empty file";
+      }
+
+      pendingFiles.push(entry);
+    });
+
+    renderQueue();
+  }
+
+  dropzone.addEventListener("click", function () { fileInput.click(); });
+  dropzone.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      fileInput.click();
+    }
+  });
+  fileInput.addEventListener("change", function () {
+    addFiles(fileInput.files);
+    fileInput.value = "";
+  });
+  ["dragenter", "dragover"].forEach(function (name) {
+    dropzone.addEventListener(name, function (event) {
+      event.preventDefault();
+      dropzone.classList.add("drag");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (name) {
+    dropzone.addEventListener(name, function (event) {
+      event.preventDefault();
+      dropzone.classList.remove("drag");
+    });
+  });
+  dropzone.addEventListener("drop", function (event) {
+    if (event.dataTransfer && event.dataTransfer.files) {
+      addFiles(event.dataTransfer.files);
+    }
+  });
+
+  $("upload-btn").addEventListener("click", async function () {
+    var button = $("upload-btn");
+    var ready = pendingFiles.filter(function (e) { return e.state === "ready"; });
+    var customTitle = $("file-title").value.trim();
+
+    button.disabled = true;
+    showMessage("add-message", "", "ok");
+
+    var added = 0;
+
+    for (var i = 0; i < ready.length; i++) {
+      var entry = ready[i];
+      entry.note = "Uploading...";
+      renderQueue();
+
+      var form = new FormData();
+      form.append("file", entry.file);
+
+      if (customTitle && ready.length === 1) {
+        form.append("title", customTitle);
+      }
+
+      try {
+        await api("/chatbot/admin/documents", { method: "POST", body: form });
+        entry.state = "done";
+        entry.note = "Added";
+        added += 1;
+      } catch (error) {
+        entry.state = "error";
+        entry.note = error.message;
+      }
+
+      renderQueue();
+    }
+
+    if (added) {
+      showMessage("add-message", added + (added === 1 ? " document added." : " documents added.") + " The chatbot can use " + (added === 1 ? "it" : "them") + " now.", "ok");
+      $("file-title").value = "";
+      refreshAll();
+    } else {
+      showMessage("add-message", "Nothing was added. See the messages next to each file.", "error");
+    }
+
+    // keep failed files visible, drop the finished ones after a moment
+    setTimeout(function () {
+      pendingFiles = pendingFiles.filter(function (e) { return e.state !== "done"; });
+      renderQueue();
+    }, 2500);
+  });
+
+  // ---------------------------------------------------------- paste text
+  $("text-btn").addEventListener("click", async function () {
+    var title = $("text-title").value.trim();
+    var content = $("text-content").value.trim();
+
+    if (!title || !content) {
+      showMessage("add-message", "Enter both a title and the document text.", "error");
+      return;
+    }
+
+    var button = $("text-btn");
+    button.disabled = true;
+
+    try {
+      await api("/chatbot/admin/documents/text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title, content: content })
+      });
+      $("text-title").value = "";
+      $("text-content").value = "";
+      showMessage("add-message", "Document added. The chatbot can use it now.", "ok");
+      refreshAll();
+    } catch (error) {
+      showMessage("add-message", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  // ------------------------------------------------------- try a question
+  $("test-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+
+    var question = $("test-question").value.trim();
+    if (!question) { return; }
+
+    var button = $("test-btn");
+    var box = $("answer-box");
+    button.disabled = true;
+    button.textContent = "Asking...";
+
+    try {
+      var response = await fetch(server + "/chatbot/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: question, session_id: "admin-test" })
+      });
+      var data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Request failed.");
+      }
+
+      box.textContent = data.answer;
+
+      var note = document.createElement("small");
+      note.textContent = data.sources && data.sources.length
+        ? "Source: " + data.sources.map(function (s) { return s.title; }).join(", ")
+        : (data.matched ? "" : "No matching document.");
+      box.appendChild(note);
+      box.className = "answer-box show";
+
+      loadStats().catch(function () {});
+      loadUnanswered().catch(function () {});
+    } catch (error) {
+      box.textContent = error.message;
+      box.className = "answer-box show";
+    } finally {
+      button.disabled = false;
+      button.textContent = "Ask";
+    }
+  });
+
+  // ---------------------------------------------------------------- start
+  $("server-url").value = safeGet("localStorage", SERVER_KEY) || defaultServer();
+
+  // When served by the API itself the server is the page's own origin.
+  if (location.protocol === "http:" || location.protocol === "https:") {
+    if (!new URLSearchParams(location.search).get("api") && location.pathname.replace(/\/+$/, "") === "/admin") {
+      $("server-url").value = location.origin;
+    }
+  }
+
+  var savedToken = safeGet("sessionStorage", TOKEN_KEY);
+
+  if (savedToken) {
+    token = savedToken;
+    server = $("server-url").value.trim().replace(/\/+$/, "");
+
+    api("/chatbot/admin/verify")
+      .then(showApp)
+      .catch(function () {
+        token = "";
+        safeRemove("sessionStorage", TOKEN_KEY);
+      });
+  }
+})();
+</script>
+</body>
+</html>

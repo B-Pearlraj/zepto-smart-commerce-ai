@@ -99,7 +99,12 @@ def render_document_chatbot(
       var doc = host.document;
 
       // Already installed by an earlier Streamlit rerun: nothing to do.
+      // Only the theme may have changed (dark / light toggle): apply it.
       if (host.__zeptoChatbotLoaded) {{
+        var existing = doc.querySelector(".zbot-root");
+        if (existing) {{
+          existing.setAttribute("data-theme", {_js_safe(theme)});
+        }}
         return;
       }}
 
