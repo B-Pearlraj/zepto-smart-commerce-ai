@@ -87,14 +87,6 @@ app = FastAPI(
 
 
 # ======================================================================
-# DOCUMENT CHATBOT  (admin page, /chatbot routes, CORS, table setup)
-# ======================================================================
-from chatbot_api import register_chatbot
-
-register_chatbot(app)
-
-
-# ======================================================================
 # STARTUP: ENSURE ORDERS TABLE EXISTS + SEEDED
 # ======================================================================
 @app.on_event("startup")

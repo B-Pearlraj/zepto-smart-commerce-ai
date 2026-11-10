@@ -1015,18 +1015,6 @@ if prompt:
 
     st.rerun()
 
-# ============================================================
-# FLOATING DOCUMENT CHATBOT (answers from admin-uploaded documents)
-# ============================================================
-
-from chatbot_widget import render_document_chatbot
-
-render_document_chatbot(
-    API_BASE_URL,
-    title="Zepto Assistant",
-    subtitle="Online - ask me about our documents",
-)
-
 st.markdown(
     "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
     unsafe_allow_html=True
