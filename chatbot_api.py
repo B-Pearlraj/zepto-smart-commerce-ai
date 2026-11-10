@@ -21,7 +21,7 @@ Admin endpoints (header  X-Admin-Token: <ADMIN_TOKEN>)
     GET    /chatbot/admin/unanswered
 
 Static files served by the API itself
-    GET /admin  (and /admin.html)    admin.html
+    GET /admin                       admin.html
     GET /chatbot/chatbot.js
     GET /chatbot/chatbot.css
 
@@ -344,7 +344,6 @@ def register_chatbot(app: FastAPI) -> None:
     app.include_router(router)
 
     @app.get("/admin", include_in_schema=False)
-    @app.get("/admin.html", include_in_schema=False)
     def serve_admin_page():
         return _static_file("admin.html", "text/html")
 
