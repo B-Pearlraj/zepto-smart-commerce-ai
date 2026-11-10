@@ -1,0 +1,441 @@
+/* ======================================================================
+   Zepto Smart Commerce AI - document chatbot widget
+   Every class is prefixed "zbot-" so it cannot clash with the host page.
+   Colours come from the variables on .zbot-root; override them from the
+   host page if you want a different brand colour.
+   ====================================================================== */
+
+.zbot-root {
+  --zbot-brand: #8b2ff8;
+  --zbot-brand-dark: #6e1fd1;
+  --zbot-brand-soft: #f1e6fe;
+  --zbot-ink: #161119;
+  --zbot-muted: #7a6e88;
+  --zbot-surface: #ffffff;
+  --zbot-surface-alt: #faf8fd;
+  --zbot-border: #efe6fc;
+  --zbot-bot-bubble: #f4effb;
+  --zbot-online: #12b76a;
+  --zbot-ring: #141a3a;
+  --zbot-error: #b42318;
+  --zbot-shadow: 0 18px 48px rgba(32, 12, 66, 0.22);
+
+  position: fixed;
+  z-index: 2147483000;
+  bottom: var(--zbot-offset-bottom, 24px);
+  font-family: "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--zbot-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+.zbot-root[data-position="right"] { right: var(--zbot-offset-side, 24px); }
+.zbot-root[data-position="left"]  { left:  var(--zbot-offset-side, 24px); }
+
+.zbot-root[data-theme="dark"] {
+  --zbot-ink: #f1edf7;
+  --zbot-muted: #a79bb8;
+  --zbot-surface: #1f1b26;
+  --zbot-surface-alt: #17141d;
+  --zbot-border: #332d3f;
+  --zbot-bot-bubble: #2a2433;
+  --zbot-brand-soft: #34244d;
+  --zbot-ring: #0c0f24;
+  --zbot-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  .zbot-root[data-theme="auto"] {
+    --zbot-ink: #f1edf7;
+    --zbot-muted: #a79bb8;
+    --zbot-surface: #1f1b26;
+    --zbot-surface-alt: #17141d;
+    --zbot-border: #332d3f;
+    --zbot-bot-bubble: #2a2433;
+    --zbot-brand-soft: #34244d;
+    --zbot-ring: #0c0f24;
+    --zbot-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  }
+}
+
+.zbot-root *,
+.zbot-root *::before,
+.zbot-root *::after {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- launcher */
+
+.zbot-launcher {
+  position: relative;
+  display: block;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--zbot-ring);
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(20, 26, 58, 0.35);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.zbot-launcher:hover { transform: scale(1.06); }
+.zbot-launcher:active { transform: scale(0.97); }
+
+.zbot-launcher:focus-visible,
+.zbot-icon-btn:focus-visible,
+.zbot-send:focus-visible,
+.zbot-chip:focus-visible,
+.zbot-input:focus-visible {
+  outline: 3px solid var(--zbot-brand);
+  outline-offset: 2px;
+}
+
+.zbot-launcher-avatar {
+  position: absolute;
+  inset: 9px;
+  width: calc(100% - 18px);
+  height: calc(100% - 18px);
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0b0d1e;
+  pointer-events: none;
+}
+
+.zbot-online-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--zbot-online);
+  border: 3px solid #ffffff;
+  pointer-events: none;
+}
+
+.zbot-root[data-open="true"] .zbot-launcher-avatar { display: none; }
+
+.zbot-launcher-close {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  pointer-events: none;
+}
+
+.zbot-root[data-open="true"] .zbot-launcher { background: var(--zbot-brand); }
+.zbot-root[data-open="true"] .zbot-launcher-close { display: flex; }
+
+/* ------------------------------------------------------------------- panel */
+
+.zbot-panel {
+  position: absolute;
+  bottom: 78px;
+  width: 372px;
+  height: min(560px, calc(100vh - 130px));
+  height: min(560px, calc(100dvh - 130px));
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--zbot-surface);
+  border: 1px solid var(--zbot-border);
+  border-radius: 18px;
+  box-shadow: var(--zbot-shadow);
+  transform-origin: bottom right;
+}
+
+.zbot-root[data-position="right"] .zbot-panel { right: 0; }
+.zbot-root[data-position="left"]  .zbot-panel { left: 0; transform-origin: bottom left; }
+
+.zbot-root[data-open="true"] .zbot-panel {
+  display: flex;
+  animation: zbot-open 0.2s ease-out;
+}
+
+@keyframes zbot-open {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ header */
+
+.zbot-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  color: #ffffff;
+  background: var(--zbot-brand);
+}
+
+.zbot-header-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+}
+
+.zbot-header-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0b0d1e;
+}
+
+.zbot-header-avatar::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--zbot-online);
+  border: 2px solid var(--zbot-brand);
+}
+
+.zbot-header-text { flex: 1 1 auto; min-width: 0; }
+
+.zbot-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zbot-subtitle {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.88;
+}
+
+.zbot-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.zbot-icon-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------------------------------------------------------------- messages */
+
+.zbot-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 14px 6px;
+  background: var(--zbot-surface-alt);
+  scroll-behavior: smooth;
+}
+
+.zbot-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.zbot-row[data-role="user"] { align-items: flex-end; }
+.zbot-row[data-role="bot"]  { align-items: flex-start; }
+
+.zbot-bubble {
+  max-width: 86%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.zbot-row[data-role="user"] .zbot-bubble {
+  background: var(--zbot-brand);
+  color: #ffffff;
+  border-bottom-right-radius: 5px;
+}
+
+.zbot-row[data-role="bot"] .zbot-bubble {
+  background: var(--zbot-bot-bubble);
+  color: var(--zbot-ink);
+  border-bottom-left-radius: 5px;
+}
+
+.zbot-row[data-error="true"] .zbot-bubble {
+  background: transparent;
+  border: 1px solid var(--zbot-error);
+  color: var(--zbot-error);
+}
+
+.zbot-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 86%;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--zbot-muted);
+}
+
+.zbot-source {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--zbot-brand-soft);
+  color: var(--zbot-brand-dark);
+  font-weight: 600;
+}
+
+.zbot-root[data-theme="dark"] .zbot-source { color: #d6b9ff; }
+
+/* typing indicator */
+
+.zbot-typing .zbot-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+}
+
+.zbot-typing .zbot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--zbot-muted);
+  animation: zbot-bounce 1.1s infinite ease-in-out;
+}
+
+.zbot-typing .zbot-dot:nth-child(2) { animation-delay: 0.15s; }
+.zbot-typing .zbot-dot:nth-child(3) { animation-delay: 0.3s; }
+
+.zbot-typing-note {
+  margin: 4px 0 0 4px;
+  font-size: 11.5px;
+  color: var(--zbot-muted);
+}
+
+@keyframes zbot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30%           { transform: translateY(-5px); opacity: 1; }
+}
+
+/* ------------------------------------------------------------ suggestions */
+
+.zbot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 14px 10px;
+  background: var(--zbot-surface-alt);
+}
+
+.zbot-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--zbot-border);
+  border-radius: 999px;
+  background: var(--zbot-surface);
+  color: var(--zbot-brand-dark);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.zbot-root[data-theme="dark"] .zbot-chip { color: #d6b9ff; }
+.zbot-chip:hover { background: var(--zbot-brand-soft); }
+
+/* ---------------------------------------------------------------- composer */
+
+.zbot-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--zbot-border);
+  background: var(--zbot-surface);
+}
+
+.zbot-input {
+  flex: 1 1 auto;
+  min-height: 40px;
+  max-height: 110px;
+  padding: 9px 14px;
+  border: 1px solid var(--zbot-border);
+  border-radius: 20px;
+  background: var(--zbot-surface-alt);
+  color: var(--zbot-ink);
+  font: inherit;
+  resize: none;
+  overflow-y: auto;
+}
+
+.zbot-input::placeholder { color: var(--zbot-muted); }
+
+.zbot-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--zbot-brand);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.zbot-send:hover:not(:disabled) { background: var(--zbot-brand-dark); }
+.zbot-send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.zbot-footnote {
+  padding: 0 12px 9px;
+  background: var(--zbot-surface);
+  color: var(--zbot-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ mobile */
+
+@media (max-width: 480px) {
+  .zbot-root {
+    --zbot-offset-side: 14px;
+  }
+
+  .zbot-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 88px;
+    width: auto;
+    height: calc(100vh - 110px);
+    height: calc(100dvh - 110px);
+    max-height: 640px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zbot-launcher,
+  .zbot-messages { transition: none; scroll-behavior: auto; }
+
+  .zbot-root[data-open="true"] .zbot-panel { animation: none; }
+
+  .zbot-typing .zbot-dot { animation: none; opacity: 0.8; }
+}
