@@ -1,441 +1,276 @@
-/* ======================================================================
-   Zepto Smart Commerce AI - document chatbot widget
-   Every class is prefixed "zbot-" so it cannot clash with the host page.
-   Colours come from the variables on .zbot-root; override them from the
-   host page if you want a different brand colour.
-   ====================================================================== */
+/* ==========================================================================
+   AI Assistant chat widget
+   Every class starts with "pa-" and every rule is scoped under #pa-root, so
+   nothing here can change (or be changed by) the styles of the host page.
+   The theme (dark/light) is detected from the page by chatbot.js and set as
+   data-pa-theme on #pa-root, so it follows your existing theme toggle.
+   Override the accent colour with:  #pa-root { --pa-accent: #your-colour; }
+   ========================================================================== */
 
-.zbot-root {
-  --zbot-brand: #8b2ff8;
-  --zbot-brand-dark: #6e1fd1;
-  --zbot-brand-soft: #f1e6fe;
-  --zbot-ink: #161119;
-  --zbot-muted: #7a6e88;
-  --zbot-surface: #ffffff;
-  --zbot-surface-alt: #faf8fd;
-  --zbot-border: #efe6fc;
-  --zbot-bot-bubble: #f4effb;
-  --zbot-online: #12b76a;
-  --zbot-ring: #141a3a;
-  --zbot-error: #b42318;
-  --zbot-shadow: 0 18px 48px rgba(32, 12, 66, 0.22);
+#pa-root {
+  --pa-accent: #6d5efc;
+  --pa-accent-contrast: #ffffff;
+  --pa-online: #22b573;
+  --pa-radius: 18px;
+  --pa-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* dark theme (default) */
+  --pa-bg: #17171c;
+  --pa-surface: #1f1f26;
+  --pa-surface-2: #272730;
+  --pa-border: #2f2f3a;
+  --pa-text: #ececf2;
+  --pa-muted: #9d9dae;
+  --pa-user-bg: var(--pa-accent);
+  --pa-user-text: var(--pa-accent-contrast);
+  --pa-shadow: 0 18px 50px rgba(0, 0, 0, .55);
 
   position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 2147483000;
-  bottom: var(--zbot-offset-bottom, 24px);
-  font-family: "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-family: var(--pa-font);
+  font-size: 15px;
   line-height: 1.5;
-  color: var(--zbot-ink);
+  color: var(--pa-text);
   -webkit-text-size-adjust: 100%;
 }
 
-.zbot-root[data-position="right"] { right: var(--zbot-offset-side, 24px); }
-.zbot-root[data-position="left"]  { left:  var(--zbot-offset-side, 24px); }
-
-.zbot-root[data-theme="dark"] {
-  --zbot-ink: #f1edf7;
-  --zbot-muted: #a79bb8;
-  --zbot-surface: #1f1b26;
-  --zbot-surface-alt: #17141d;
-  --zbot-border: #332d3f;
-  --zbot-bot-bubble: #2a2433;
-  --zbot-brand-soft: #34244d;
-  --zbot-ring: #0c0f24;
-  --zbot-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+#pa-root[data-pa-theme="light"] {
+  --pa-bg: #ffffff;
+  --pa-surface: #f3f3f8;
+  --pa-surface-2: #e9e9f2;
+  --pa-border: #dcdce8;
+  --pa-text: #1c1c26;
+  --pa-muted: #6a6a7c;
+  --pa-shadow: 0 18px 50px rgba(30, 30, 60, .25);
 }
 
-@media (prefers-color-scheme: dark) {
-  .zbot-root[data-theme="auto"] {
-    --zbot-ink: #f1edf7;
-    --zbot-muted: #a79bb8;
-    --zbot-surface: #1f1b26;
-    --zbot-surface-alt: #17141d;
-    --zbot-border: #332d3f;
-    --zbot-bot-bubble: #2a2433;
-    --zbot-brand-soft: #34244d;
-    --zbot-ring: #0c0f24;
-    --zbot-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-  }
-}
+#pa-root *,
+#pa-root *::before,
+#pa-root *::after { box-sizing: border-box; }
 
-.zbot-root *,
-.zbot-root *::before,
-.zbot-root *::after {
-  box-sizing: border-box;
-}
+#pa-root button,
+#pa-root textarea { font: inherit; color: inherit; margin: 0; }
 
-/* ---------------------------------------------------------------- launcher */
+#pa-root :focus-visible { outline: 2px solid var(--pa-accent); outline-offset: 2px; }
 
-.zbot-launcher {
+/* ----- launcher button ---------------------------------------------------- */
+#pa-root .pa-launcher {
   position: relative;
-  display: block;
   width: 64px;
   height: 64px;
   padding: 0;
-  margin: 0;
-  border: 0;
+  border: 2px solid var(--pa-border);
   border-radius: 50%;
-  background: var(--zbot-ring);
+  background: var(--pa-bg);
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(20, 26, 58, 0.35);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  display: grid;
+  place-items: center;
+  transition: transform .18s ease, box-shadow .18s ease;
 }
+#pa-root .pa-launcher:hover { transform: translateY(-2px) scale(1.04); }
+#pa-root .pa-launcher img,
+#pa-root .pa-launcher svg.pa-fallback-logo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
 
-.zbot-launcher:hover { transform: scale(1.06); }
-.zbot-launcher:active { transform: scale(0.97); }
-
-.zbot-launcher:focus-visible,
-.zbot-icon-btn:focus-visible,
-.zbot-send:focus-visible,
-.zbot-chip:focus-visible,
-.zbot-input:focus-visible {
-  outline: 3px solid var(--zbot-brand);
-  outline-offset: 2px;
-}
-
-.zbot-launcher-avatar {
+#pa-root .pa-dot {
   position: absolute;
-  inset: 9px;
-  width: calc(100% - 18px);
-  height: calc(100% - 18px);
+  top: 0;
+  right: 0;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  object-fit: cover;
-  background: #0b0d1e;
-  pointer-events: none;
+  background: var(--pa-online);
+  border: 2px solid var(--pa-bg);
 }
 
-.zbot-online-dot {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  background: var(--zbot-online);
-  border: 3px solid #ffffff;
-  pointer-events: none;
-}
+#pa-root.pa-open .pa-launcher { display: none; }
 
-.zbot-root[data-open="true"] .zbot-launcher-avatar { display: none; }
-
-.zbot-launcher-close {
-  display: none;
-  position: absolute;
-  inset: 0;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  pointer-events: none;
-}
-
-.zbot-root[data-open="true"] .zbot-launcher { background: var(--zbot-brand); }
-.zbot-root[data-open="true"] .zbot-launcher-close { display: flex; }
-
-/* ------------------------------------------------------------------- panel */
-
-.zbot-panel {
-  position: absolute;
-  bottom: 78px;
-  width: 372px;
-  height: min(560px, calc(100vh - 130px));
-  height: min(560px, calc(100dvh - 130px));
+/* ----- panel -------------------------------------------------------------- */
+#pa-root .pa-panel {
   display: none;
   flex-direction: column;
+  width: 380px;
+  height: min(600px, calc(100vh - 40px));
+  height: min(600px, calc(100dvh - 40px));
+  background: var(--pa-bg);
+  border: 1px solid var(--pa-border);
+  border-radius: var(--pa-radius);
+  box-shadow: var(--pa-shadow);
   overflow: hidden;
-  background: var(--zbot-surface);
-  border: 1px solid var(--zbot-border);
-  border-radius: 18px;
-  box-shadow: var(--zbot-shadow);
   transform-origin: bottom right;
 }
+#pa-root.pa-open .pa-panel { display: flex; animation: pa-pop .2s ease-out; }
 
-.zbot-root[data-position="right"] .zbot-panel { right: 0; }
-.zbot-root[data-position="left"]  .zbot-panel { left: 0; transform-origin: bottom left; }
-
-.zbot-root[data-open="true"] .zbot-panel {
-  display: flex;
-  animation: zbot-open 0.2s ease-out;
-}
-
-@keyframes zbot-open {
-  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+@keyframes pa-pop {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
   to   { opacity: 1; transform: none; }
 }
 
-/* ------------------------------------------------------------------ header */
-
-.zbot-header {
+/* header */
+#pa-root .pa-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 12px 12px 14px;
-  color: #ffffff;
-  background: var(--zbot-brand);
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--pa-border);
+  background: var(--pa-surface);
 }
+#pa-root .pa-avatar { position: relative; flex: none; width: 40px; height: 40px; }
+#pa-root .pa-avatar img,
+#pa-root .pa-avatar svg.pa-fallback-logo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+#pa-root .pa-avatar .pa-dot { width: 12px; height: 12px; border-color: var(--pa-surface); }
+#pa-root .pa-titles { flex: 1; min-width: 0; }
+#pa-root .pa-title { font-weight: 650; font-size: 16px; line-height: 1.2; }
+#pa-root .pa-status { font-size: 12.5px; color: var(--pa-muted); }
 
-.zbot-header-avatar {
-  position: relative;
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-}
-
-.zbot-header-avatar img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  background: #0b0d1e;
-}
-
-.zbot-header-avatar::after {
-  content: "";
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--zbot-online);
-  border: 2px solid var(--zbot-brand);
-}
-
-.zbot-header-text { flex: 1 1 auto; min-width: 0; }
-
-.zbot-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.zbot-subtitle {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.88;
-}
-
-.zbot-icon-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
+#pa-root .pa-icon-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: transparent;
   border: 0;
   border-radius: 8px;
-  background: transparent;
-  color: inherit;
+  color: var(--pa-muted);
   cursor: pointer;
 }
+#pa-root .pa-icon-btn:hover { background: var(--pa-surface-2); color: var(--pa-text); }
+#pa-root .pa-icon-btn svg { width: 18px; height: 18px; }
 
-.zbot-icon-btn:hover { background: rgba(255, 255, 255, 0.18); }
-
-/* ---------------------------------------------------------------- messages */
-
-.zbot-messages {
-  flex: 1 1 auto;
+/* messages */
+#pa-root .pa-messages {
+  flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 14px 14px 6px;
-  background: var(--zbot-surface-alt);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   scroll-behavior: smooth;
 }
 
-.zbot-row {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 10px;
-}
-
-.zbot-row[data-role="user"] { align-items: flex-end; }
-.zbot-row[data-role="bot"]  { align-items: flex-start; }
-
-.zbot-bubble {
-  max-width: 86%;
-  padding: 9px 13px;
+#pa-root .pa-msg {
+  max-width: 88%;
+  padding: 10px 14px;
   border-radius: 16px;
-  white-space: pre-wrap;
+  word-wrap: break-word;
   overflow-wrap: anywhere;
 }
-
-.zbot-row[data-role="user"] .zbot-bubble {
-  background: var(--zbot-brand);
-  color: #ffffff;
-  border-bottom-right-radius: 5px;
+#pa-root .pa-msg p { margin: 0 0 8px; }
+#pa-root .pa-msg p:last-child { margin-bottom: 0; }
+#pa-root .pa-msg ul { margin: 4px 0 8px; padding-left: 20px; }
+#pa-root .pa-msg li { margin: 2px 0; }
+#pa-root .pa-msg code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .9em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(127, 127, 150, .22);
 }
+#pa-root .pa-msg a { color: inherit; text-decoration: underline; }
 
-.zbot-row[data-role="bot"] .zbot-bubble {
-  background: var(--zbot-bot-bubble);
-  color: var(--zbot-ink);
+#pa-root .pa-msg.pa-bot {
+  align-self: flex-start;
+  background: var(--pa-surface);
+  border: 1px solid var(--pa-border);
   border-bottom-left-radius: 5px;
 }
-
-.zbot-row[data-error="true"] .zbot-bubble {
-  background: transparent;
-  border: 1px solid var(--zbot-error);
-  color: var(--zbot-error);
+#pa-root .pa-msg.pa-user {
+  align-self: flex-end;
+  background: var(--pa-user-bg);
+  color: var(--pa-user-text);
+  border-bottom-right-radius: 5px;
 }
+#pa-root .pa-msg.pa-error { border-color: #e5594f; }
 
-.zbot-sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-width: 86%;
-  margin-top: 5px;
-  font-size: 11.5px;
-  color: var(--zbot-muted);
-}
-
-.zbot-source {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--zbot-brand-soft);
-  color: var(--zbot-brand-dark);
-  font-weight: 600;
-}
-
-.zbot-root[data-theme="dark"] .zbot-source { color: #d6b9ff; }
+#pa-root .pa-sources { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--pa-border); font-size: 12.5px; color: var(--pa-muted); }
 
 /* typing indicator */
-
-.zbot-typing .zbot-bubble {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 36px;
+#pa-root .pa-typing { display: inline-flex; gap: 5px; align-items: center; padding: 4px 2px; }
+#pa-root .pa-typing span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--pa-muted);
+  animation: pa-blink 1.2s infinite ease-in-out;
 }
+#pa-root .pa-typing span:nth-child(2) { animation-delay: .15s; }
+#pa-root .pa-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes pa-blink { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+#pa-root .pa-note { font-size: 12.5px; color: var(--pa-muted); margin-top: 6px; }
 
-.zbot-typing .zbot-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--zbot-muted);
-  animation: zbot-bounce 1.1s infinite ease-in-out;
-}
-
-.zbot-typing .zbot-dot:nth-child(2) { animation-delay: 0.15s; }
-.zbot-typing .zbot-dot:nth-child(3) { animation-delay: 0.3s; }
-
-.zbot-typing-note {
-  margin: 4px 0 0 4px;
-  font-size: 11.5px;
-  color: var(--zbot-muted);
-}
-
-@keyframes zbot-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-  30%           { transform: translateY(-5px); opacity: 1; }
-}
-
-/* ------------------------------------------------------------ suggestions */
-
-.zbot-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 2px 14px 10px;
-  background: var(--zbot-surface-alt);
-}
-
-.zbot-chip {
-  padding: 6px 12px;
-  border: 1px solid var(--zbot-border);
-  border-radius: 999px;
-  background: var(--zbot-surface);
-  color: var(--zbot-brand-dark);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+/* suggestion chips */
+#pa-root .pa-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+#pa-root .pa-chip {
+  padding: 7px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--pa-border);
+  background: transparent;
+  font-size: 13.5px;
   cursor: pointer;
+  text-align: left;
 }
+#pa-root .pa-chip:hover { border-color: var(--pa-accent); background: var(--pa-surface); }
 
-.zbot-root[data-theme="dark"] .zbot-chip { color: #d6b9ff; }
-.zbot-chip:hover { background: var(--zbot-brand-soft); }
-
-/* ---------------------------------------------------------------- composer */
-
-.zbot-composer {
+/* composer */
+#pa-root .pa-composer {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--zbot-border);
-  background: var(--zbot-surface);
+  padding: 12px;
+  border-top: 1px solid var(--pa-border);
+  background: var(--pa-bg);
 }
-
-.zbot-input {
-  flex: 1 1 auto;
-  min-height: 40px;
-  max-height: 110px;
-  padding: 9px 14px;
-  border: 1px solid var(--zbot-border);
-  border-radius: 20px;
-  background: var(--zbot-surface-alt);
-  color: var(--zbot-ink);
-  font: inherit;
+#pa-root .pa-input {
+  flex: 1;
   resize: none;
-  overflow-y: auto;
+  max-height: 120px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid var(--pa-border);
+  border-radius: 14px;
+  background: var(--pa-surface);
+  color: var(--pa-text);
+  line-height: 1.4;
 }
-
-.zbot-input::placeholder { color: var(--zbot-muted); }
-
-.zbot-send {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
+#pa-root .pa-input::placeholder { color: var(--pa-muted); }
+#pa-root .pa-send {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--zbot-brand);
-  color: #ffffff;
+  background: var(--pa-accent);
+  color: var(--pa-accent-contrast);
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: opacity .15s, transform .15s;
+}
+#pa-root .pa-send:hover:not(:disabled) { transform: scale(1.06); }
+#pa-root .pa-send:disabled { opacity: .45; cursor: not-allowed; }
+#pa-root .pa-send svg { width: 19px; height: 19px; }
+
+#pa-root .pa-footer { padding: 0 14px 10px; font-size: 11.5px; color: var(--pa-muted); text-align: center; background: var(--pa-bg); }
+
+#pa-root .pa-sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 
-.zbot-send:hover:not(:disabled) { background: var(--zbot-brand-dark); }
-.zbot-send:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.zbot-footnote {
-  padding: 0 12px 9px;
-  background: var(--zbot-surface);
-  color: var(--zbot-muted);
-  font-size: 11px;
-  text-align: center;
-}
-
-/* ------------------------------------------------------------------ mobile */
-
-@media (max-width: 480px) {
-  .zbot-root {
-    --zbot-offset-side: 14px;
+/* ----- phones: full-width bottom sheet ------------------------------------ */
+@media (max-width: 520px) {
+  #pa-root { right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
+  #pa-root.pa-open { right: 0; bottom: 0; left: 0; top: 0; }
+  #pa-root.pa-open .pa-panel {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: 0;
+    padding-bottom: env(safe-area-inset-bottom);
   }
-
-  .zbot-panel {
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: 88px;
-    width: auto;
-    height: calc(100vh - 110px);
-    height: calc(100dvh - 110px);
-    max-height: 640px;
-  }
+  #pa-root .pa-input { font-size: 16px; } /* stops iOS zooming into the field */
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .zbot-launcher,
-  .zbot-messages { transition: none; scroll-behavior: auto; }
-
-  .zbot-root[data-open="true"] .zbot-panel { animation: none; }
-
-  .zbot-typing .zbot-dot { animation: none; opacity: 0.8; }
+  #pa-root *, #pa-root *::before, #pa-root *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

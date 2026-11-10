@@ -1,665 +1,444 @@
 """
-FastAPI application for the
-Zepto Smart Commerce AI Platform.
+Portfolio AI Assistant: FastAPI backend.
 
-Module:
-ML Delivery Intelligence Engine
+Public endpoints
+    GET  /health                       liveness (and ?deep=1 for DB/key checks)
+    POST /api/chat                     answer a visitor question from the knowledge base
 
-Production Model:
-HGB-v1
+Admin endpoints (signed HttpOnly session cookie required)
+    POST   /api/admin/login | /logout
+    GET    /api/admin/session
+    GET    /api/admin/documents
+    POST   /api/admin/documents        upload PDF / DOCX / TXT / MD
+    GET    /api/admin/documents/{id}/chunks
+    DELETE /api/admin/documents/{id}
+    GET    /api/admin/search?q=...     retrieval test with similarity scores
+
+Pages
+    GET /admin                         the admin dashboard (static/admin.html)
+    /static/chatbot.js, /static/chatbot.css
 """
 
-from pathlib import Path
-import sys
-import math
 import logging
+import os
 import time
-from datetime import datetime, timezone
-from inference import production_predict_order
+from contextlib import asynccontextmanager
+from typing import Literal
 
-# ----------------------------------------------------------------------
-# PostgreSQL repository
-# ----------------------------------------------------------------------
-from database_repository import (
-    save_prediction,
-    count_predictions,
-    get_recent_predictions,
-    ensure_orders_table,
-    seed_sample_orders,
-    get_order_by_id,
+import psycopg
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-# ----------------------------------------------------------------------
-# Ensure FastAPI application directory is importable
-# ----------------------------------------------------------------------
-APP_DIR = Path(__file__).resolve().parent
-
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-
-# ----------------------------------------------------------------------
-# Weather and Traffic providers
-# ----------------------------------------------------------------------
-from weather_provider import get_weather
-from tomtom_traffic_provider import get_traffic
-
-# ----------------------------------------------------------------------
-# FastAPI imports
-# ----------------------------------------------------------------------
-from fastapi import FastAPI, HTTPException
-
+import ingest
+import rag
 from config import (
-    API_TITLE,
-    API_DESCRIPTION,
-    API_VERSION,
-    MODEL_VERSION,
+    ALLOWED_ORIGINS,
+    CHAT_GLOBAL_PER_DAY,
+    CHAT_RATE_PER_DAY,
+    CHAT_RATE_PER_MIN,
+    COOKIE_SECURE,
+    DATABASE_URL,
+    GEMINI_API_KEY,
+    LOGIN_MAX_FAILURES,
+    MAX_QUESTION_CHARS,
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_MB,
+    SESSION_HOURS,
+    STATIC_DIR,
+)
+from db import DatabaseNotConfigured, connection, init_schema
+from llm import LLMError
+from security import (
+    COOKIE_NAME,
+    COOKIE_PATH,
+    check_password,
+    client_ip,
+    limiter,
+    make_token,
+    require_admin,
 )
 
-from schemas import (
-    DeliveryPredictionRequest,
-    DeliveryPredictionResponse,
-    HealthResponse,
-    ErrorResponse,
-)
-
-from inference import (
-    production_predict_order,
-)
-
-# ======================================================================
-# LOGGING CONFIGURATION
-# ======================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-
-logger = logging.getLogger("zepto_fastapi")
-
-# ======================================================================
-# FASTAPI APPLICATION
-# ======================================================================
-app = FastAPI(
-    title=API_TITLE,
-    description=API_DESCRIPTION,
-    version=API_VERSION,
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+logger = logging.getLogger("assistant.api")
 
 
-# ======================================================================
-# STARTUP: ENSURE ORDERS TABLE EXISTS + SEEDED
-# ======================================================================
-@app.on_event("startup")
-def setup_orders_table():
-    """
-    Create the `orders` lookup table if it doesn't exist yet and
-    seed it with sample orders (ORD1001 - ORD1010). Both steps are
-    idempotent, so this is safe to run on every restart.
-    """
-
+# ----------------------------------------------------------------------------
+# Startup
+# ----------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
-        ensure_orders_table()
-        newly_seeded = seed_sample_orders()
+        init_schema()
+    except Exception:
+        # Do not crash: /health must still answer so Render keeps the service up
+        # and the problem is visible in /health?deep=1 and the logs.
+        logger.exception("Database schema setup failed")
+    yield
 
-        logger.info(
-            "Orders table ready | newly_seeded=%s",
-            newly_seeded,
-        )
 
-    except Exception as exc:
-        logger.exception(
-            "Orders table setup failed: %s",
-            str(exc),
-        )
+app = FastAPI(
+    title="Portfolio AI Assistant",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url=None,       # no public Swagger UI / OpenAPI
+    redoc_url=None,
+    openapi_url=None,
+)
 
-# ======================================================================
-# HTTP REQUEST LOGGING MIDDLEWARE
-# ======================================================================
+# Only the visitor-facing endpoints are called cross-origin (the portfolio
+# site). The admin page is served by this same app, so it needs no CORS.
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type"],
+        allow_credentials=False,
+        max_age=600,
+    )
+
+
 @app.middleware("http")
-async def log_requests(request, call_next):
-    """
-    Log API requests without logging request payloads.
-
-    Logged information:
-        - UTC timestamp
-        - HTTP method
-        - endpoint path
-        - response status
-        - request processing time
-
-    Request payloads are intentionally not logged.
-    """
-    start_time = time.perf_counter()
-    timestamp = datetime.now(timezone.utc).isoformat()
-
+async def request_logging_and_headers(request: Request, call_next):
+    started = time.time()
     try:
         response = await call_next(request)
-
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-
-        logger.info(
-            "%s | %s %s | status=%s | duration_ms=%.2f",
-            timestamp,
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-
-        return response
-
-    except Exception as exc:
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-
-        logger.exception(
-            "%s | %s %s | status=500 | duration_ms=%.2f | error=%s",
-            timestamp,
-            request.method,
-            request.url.path,
-            elapsed_ms,
-            str(exc),
-        )
-
-        raise
-
-
-# ======================================================================
-# ROOT ENDPOINT
-# ======================================================================
-@app.get("/")
-def root():
-    """
-    API root endpoint.
-    """
-    return {
-        "status": "success",
-        "application": API_TITLE,
-        "module": "ML Delivery Intelligence Engine",
-        "model_version": MODEL_VERSION,
-        "api_version": API_VERSION,
-    }
-
-
-# ======================================================================
-# HEALTH ENDPOINT
-# ======================================================================
-
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-)
-def health_check():
-    """
-    Verify that the production inference engine,
-    external enrichment providers, and PostgreSQL
-    database are available.
-    """
-
-    try:
-
-        # --------------------------------------------------------------
-        # Validate production inference engine
-        # --------------------------------------------------------------
-
-        if not callable(production_predict_order):
-            raise RuntimeError(
-                "Production inference engine is unavailable."
-            )
-
-
-        # --------------------------------------------------------------
-        # Validate PostgreSQL connectivity
-        # --------------------------------------------------------------
-
-        prediction_count = count_predictions()
-
-        logger.info(
-            "PostgreSQL health check passed | "
-            "prediction_count=%s",
-            prediction_count,
-        )
-
-
-        # --------------------------------------------------------------
-        # Return healthy status
-        # --------------------------------------------------------------
-
-        return HealthResponse(
-            status="healthy",
-            model_version=MODEL_VERSION,
-            delivery_charge_model="loaded",
-            delivery_time_model="loaded",
-            rider_acceptance_model="loaded",
-            weather_provider="available",
-            traffic_provider="available",
-        )
-
-
-    except Exception as exc:
-
-        logger.exception(
-            "Health check failed: %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        )
-
-# ======================================================================
-# ORDER LOOKUP ENDPOINT
-# ======================================================================
-@app.get("/orders/{order_id}")
-def get_order(order_id: str):
-    """
-    Look up a single order by order_id.
-
-    Used by the chatbot's "type an order ID -> see the order's
-    details -> confirm -> predict" flow. Returns the order's
-    customer/product info plus the full ML feature set stored
-    for that order.
-    """
-
-    try:
-        order = get_order_by_id(order_id)
-
-    except Exception as exc:
-        logger.exception(
-            "Order lookup failed | order_id=%s | error=%s",
-            order_id,
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        )
-
-    if order is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No order found with ID '{order_id}'.",
-        )
-
-    return {
-        "status": "success",
-        "order": order,
-    }
-
-
-# ======================================================================
-# PREDICTION ENDPOINT
-# ======================================================================
-@app.post(
-    "/predict",
-    response_model=DeliveryPredictionResponse,
-)
-def predict(
-    request: DeliveryPredictionRequest,
-):
-    """
-    Generate a complete LIVE delivery prediction.
-
-    Processing:
-
-    1. User provides order/customer/rider information.
-    2. Current weather is retrieved from OpenWeather.
-    3. Current traffic is retrieved from TomTom Traffic Flow.
-    4. Live weather and traffic are injected into the ML input.
-    5. HGB-v1 predicts:
-       - Delivery charge
-       - Estimated delivery time
-       - Rider acceptance probability
-       - Rider acceptance classification
-    6. The live conditions and predictions are stored in PostgreSQL.
-
-    No historical weather or traffic fallback is used.
-    """
-    try:
-        # --------------------------------------------------------------
-        # Convert Pydantic request to dictionary
-        # --------------------------------------------------------------
-        order_data = request.model_dump(exclude_unset=False)
-
-        # --------------------------------------------------------------
-        # Live weather enrichment
-        # --------------------------------------------------------------
-        weather_data = get_weather(
-            latitude=request.customer_lat,
-            longitude=request.customer_lon,
-        )
-
-        logger.info(
-            "Weather enrichment completed | source=%s | "
-            "condition=%s | severity=%s | rainfall_mm=%s",
-            weather_data.get("source"),
-            weather_data.get("weather_condition"),
-            weather_data.get("weather_severity"),
-            weather_data.get("rainfall_mm"),
-        )
-
-        # --------------------------------------------------------------
-        # Update ML input with live/fallback weather
-        # --------------------------------------------------------------
-        order_data["weather_condition"] = weather_data["weather_condition"]
-        order_data["weather_severity"] = weather_data["weather_severity"]
-        order_data["rainfall_mm"] = weather_data["rainfall_mm"]
-        order_data["has_rain"] = weather_data["has_rain"]
-
-        # --------------------------------------------------------------
-        # Live TomTom traffic enrichment
-        # --------------------------------------------------------------
-        traffic_data = get_traffic(
-            latitude=request.customer_lat,
-            longitude=request.customer_lon,
-        )
-
-        logger.info(
-            "Traffic enrichment completed | source=%s | "
-            "level=%s | index=%s",
-            traffic_data.get("source"),
-            traffic_data.get("traffic_level"),
-            traffic_data.get("traffic_index"),
-        )
-
-        # --------------------------------------------------------------
-        # Update ML input with live/fallback traffic
-        # --------------------------------------------------------------
-        order_data["traffic_index"] = traffic_data["traffic_index"]
-        order_data["traffic_level"] = traffic_data["traffic_level"]
-
-        # --------------------------------------------------------------
-        # Run production inference
-        # --------------------------------------------------------------
-        prediction = production_predict_order(order_data)
-
-        # --------------------------------------------------------------
-        # Validate predictions
-        # --------------------------------------------------------------
-        delivery_charge = float(prediction["delivery_charge"])
-        delivery_time = float(prediction["delivery_time_minutes"])
-        acceptance_probability = float(
-            prediction["rider_acceptance_probability"]
-        )
-        acceptance = int(prediction["rider_acceptance"])
-
-        values_to_validate = [
-            delivery_charge,
-            delivery_time,
-            acceptance_probability,
-        ]
-
-        if not all(math.isfinite(value) for value in values_to_validate):
-            raise ValueError("API generated a non-finite prediction.")
-
-        if delivery_charge <= 0:
-            raise ValueError("Delivery charge prediction must be positive.")
-
-        if delivery_time <= 0:
-            raise ValueError("Delivery time prediction must be positive.")
-
-        if not 0 <= acceptance_probability <= 1:
-            raise ValueError(
-                "Acceptance probability must be between 0 and 1."
-            )
-
-        if acceptance not in (0, 1):
-            raise ValueError("Acceptance prediction must be 0 or 1.")
-
-        # --------------------------------------------------------------
-        # Build API response
-        # --------------------------------------------------------------
-        prediction_response = DeliveryPredictionResponse(
-            status="success",
-            model_version=MODEL_VERSION,
-
-            # --------------------------------------------------------------
-            # LIVE WEATHER USED BY THE MODEL
-            # --------------------------------------------------------------
-
-            weather={
-                "source": weather_data["source"],
-                "location_name": weather_data.get(
-                    "location_name"
-                ),
-                "weather_condition": weather_data[
-                    "weather_condition"
-                ],
-                "description": weather_data[
-                    "description"
-                ],
-                "temperature_c": weather_data.get(
-                    "temperature_c"
-                ),
-                "feels_like_c": weather_data.get(
-                    "feels_like_c"
-                ),
-                "humidity_percent": weather_data.get(
-                    "humidity_percent"
-                ),
-                "pressure_hpa": weather_data.get(
-                    "pressure_hpa"
-                ),
-                "rainfall_mm": weather_data[
-                    "rainfall_mm"
-                ],
-                "has_rain": weather_data[
-                    "has_rain"
-                ],
-                "weather_severity": weather_data[
-                    "weather_severity"
-                ],
-            },
-
-            # --------------------------------------------------------------
-            # LIVE TRAFFIC USED BY THE MODEL
-            # --------------------------------------------------------------
-
-            traffic={
-                "source": traffic_data["source"],
-                "current_speed_kmh": traffic_data[
-                    "current_speed_kmh"
-                ],
-                "free_flow_speed_kmh": traffic_data[
-                    "free_flow_speed_kmh"
-                ],
-                "traffic_index": traffic_data[
-                    "traffic_index"
-                ],
-                "traffic_level": traffic_data[
-                    "traffic_level"
-                ],
-            },
-
-            # --------------------------------------------------------------
-            # ML PREDICTIONS
-            # --------------------------------------------------------------
-
-            delivery_charge=delivery_charge,
-
-            delivery_time_minutes=delivery_time,
-
-            rider_acceptance_probability=(
-                acceptance_probability
-            ),
-
-            rider_acceptance=acceptance,
-        )
-
-        # --------------------------------------------------------------
-        # PostgreSQL prediction audit logging
-        # --------------------------------------------------------------
-        try:
-            prediction_id = save_prediction(
-                model_version=MODEL_VERSION,
-                delivery_charge=delivery_charge,
-                delivery_time_minutes=delivery_time,
-                rider_acceptance_probability=acceptance_probability,
-                rider_acceptance=acceptance,
-                weather_source=weather_data.get("source"),
-                traffic_source=traffic_data.get("source"),
-            )
-
-            logger.info(
-                "Prediction saved to PostgreSQL | prediction_id=%s",
-                prediction_id,
-            )
-
-        except Exception as database_error:
-            # Database failure must NOT cause a valid
-            # ML prediction request to fail.
-            logger.exception(
-                "PostgreSQL audit logging failed: %s",
-                str(database_error),
-            )
-
-        # --------------------------------------------------------------
-        # Return API response
-        # --------------------------------------------------------------
-        return prediction_response
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc),
-        )
-
-    except Exception as exc:
-        logger.exception(
-            "Prediction request failed: %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        )
-
-
-# ======================================================================
-# PREDICTION AUDIT ENDPOINT
-# ======================================================================
-
-@app.get(
-    "/predictions/recent",
-)
-def recent_predictions(limit: int = 20):
-    """
-    Return recent prediction audit records from PostgreSQL.
-
-    Parameters:
-        limit:
-            Number of recent records to return.
-            Maximum allowed value is 100.
-    """
-
-    try:
-
-        # --------------------------------------------------------------
-        # Validate limit
-        # --------------------------------------------------------------
-
-        if limit < 1:
-            raise ValueError(
-                "limit must be greater than zero."
-            )
-
-        if limit > 100:
-            raise ValueError(
-                "limit must not exceed 100."
-            )
-
-
-        # --------------------------------------------------------------
-        # Retrieve recent predictions
-        # --------------------------------------------------------------
-
-        predictions = get_recent_predictions(
-            limit
-        )
-
-
-        # --------------------------------------------------------------
-        # Convert database records into JSON-safe values
-        # --------------------------------------------------------------
-
-        results = []
-
-        for prediction in predictions:
-
-            record = dict(prediction)
-
-            if record.get("request_timestamp") is not None:
-                record["request_timestamp"] = (
-                    record["request_timestamp"].isoformat()
-                )
-
-            if record.get("created_at") is not None:
-                record["created_at"] = (
-                    record["created_at"].isoformat()
-                )
-
-            results.append(record)
-
-
-        # --------------------------------------------------------------
-        # Return audit results
-        # --------------------------------------------------------------
-
-        return {
-            "status": "success",
-            "count": len(results),
-            "predictions": results,
+    except Exception:
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        response = JSONResponse({"detail": "Internal server error."}, status_code=500)
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+
+    if request.url.path.startswith(("/api/admin", "/admin")):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Frame-Options"] = "DENY"
+
+    logger.info(
+        "%s %s -> %s (%.0f ms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        (time.time() - started) * 1000,
+    )
+    return response
+
+
+# ----------------------------------------------------------------------------
+# Error helper
+# ----------------------------------------------------------------------------
+def _service_error(exc: Exception) -> HTTPException:
+    """Translate backend failures into short messages that are safe to show."""
+    if isinstance(exc, DatabaseNotConfigured):
+        return HTTPException(503, "The knowledge base is not configured yet.")
+    if isinstance(exc, LLMError):
+        logger.error("LLM error: %s", exc)
+        return HTTPException(503, "The AI service is temporarily unavailable. Please try again shortly.")
+    if isinstance(exc, psycopg.OperationalError):
+        logger.error("Database error: %s", exc)
+        return HTTPException(503, "The database is waking up. Please try again in a few seconds.")
+    logger.exception("Unexpected error")
+    return HTTPException(500, "Something went wrong. Please try again.")
+
+
+# ----------------------------------------------------------------------------
+# Health
+# ----------------------------------------------------------------------------
+@app.get("/health")
+def health(deep: int = 0):
+    result = {"status": "ok"}
+
+    if deep:
+        checks = {
+            "database_url_set": bool(DATABASE_URL),
+            "gemini_key_set": bool(GEMINI_API_KEY),
         }
+        try:
+            with connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.execute("SELECT extname FROM pg_extension WHERE extname = 'vector'")
+                    checks["pgvector_enabled"] = cur.fetchone() is not None
+                    cur.execute("SELECT count(*) FROM kb_chunks")
+                    checks["chunks_stored"] = cur.fetchone()[0]
+            checks["database_connected"] = True
+        except Exception as exc:
+            checks["database_connected"] = False
+            checks["database_error"] = type(exc).__name__
+            result["status"] = "degraded"
+        result["checks"] = checks
+
+    return result
 
 
-    except ValueError as exc:
+# ----------------------------------------------------------------------------
+# Public chat endpoint
+# ----------------------------------------------------------------------------
+class HistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=1200)
 
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc),
-        )
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
+    history: list[HistoryItem] = Field(default_factory=list, max_length=10)
 
 
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[str] = []
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest, request: Request):
+    ip = client_ip(request)
+
+    if not limiter.allow(f"chat-min:{ip}", CHAT_RATE_PER_MIN, 60) or not limiter.allow(
+        f"chat-day:{ip}", CHAT_RATE_PER_DAY, 86400
+    ):
+        raise HTTPException(429, "You're sending messages too quickly. Please wait a moment.")
+
+    if not limiter.allow("chat-global", CHAT_GLOBAL_PER_DAY, 86400):
+        raise HTTPException(429, "The assistant has reached its daily limit. Please try again tomorrow.")
+
+    if not payload.message.strip():
+        raise HTTPException(422, "Please type a question.")
+
+    history = [{"role": item.role, "content": item.content} for item in payload.history]
+
+    try:
+        result = rag.answer_question(payload.message, history)
     except Exception as exc:
+        raise _service_error(exc)
 
-        logger.exception(
-            "Recent prediction retrieval failed: %s",
-            str(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc),
-        )
+    return ChatResponse(answer=result["answer"], sources=result["sources"])
 
 
-# ======================================================================
-# APPLICATION INFORMATION
-# ======================================================================
-@app.get("/info")
-def application_info():
-    """
-    Return basic application and model information.
-    """
+# ----------------------------------------------------------------------------
+# Admin: authentication
+# ----------------------------------------------------------------------------
+class LoginRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/api/admin/login")
+def admin_login(payload: LoginRequest, request: Request, response: Response):
+    ip = client_ip(request)
+
+    if limiter.count(f"login-fail:{ip}", 900) >= LOGIN_MAX_FAILURES:
+        raise HTTPException(429, "Too many failed attempts. Try again in 15 minutes.")
+
+    if not check_password(payload.password):
+        limiter.allow(f"login-fail:{ip}", 10_000, 900)  # records one failure
+        logger.warning("Failed admin login from %s", ip)
+        raise HTTPException(401, "Incorrect password.")
+
+    response.set_cookie(
+        COOKIE_NAME,
+        make_token(),
+        max_age=SESSION_HOURS * 3600,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        path=COOKIE_PATH,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/admin/logout")
+def admin_logout(response: Response):
+    response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH)
+    return {"ok": True}
+
+
+@app.get("/api/admin/session", dependencies=[Depends(require_admin)])
+def admin_session():
+    return {"authenticated": True, "max_upload_mb": MAX_UPLOAD_MB}
+
+
+# ----------------------------------------------------------------------------
+# Admin: documents
+# ----------------------------------------------------------------------------
+def _fail_stale_documents() -> None:
+    """A deploy/restart can kill a background job; stop showing 'processing' forever."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE kb_documents
+                   SET status = 'failed',
+                       error_message = 'Processing was interrupted. Delete this document and upload it again.',
+                       updated_at = CURRENT_TIMESTAMP
+                 WHERE status = 'processing'
+                   AND created_at < CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+                """
+            )
+
+
+@app.get("/api/admin/documents", dependencies=[Depends(require_admin)])
+def list_documents():
+    try:
+        _fail_stale_documents()
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, title, filename, file_type, file_size_bytes, status,
+                           error_message, char_count, chunk_count, created_at
+                      FROM kb_documents
+                     ORDER BY created_at DESC
+                    """
+                )
+                rows = cur.fetchall()
+    except Exception as exc:
+        raise _service_error(exc)
+
     return {
-        "application": API_TITLE,
-        "description": API_DESCRIPTION,
-        "api_version": API_VERSION,
-        "model_version": MODEL_VERSION,
-        "endpoints": [
-            "/",
-            "/health",
-            "/info",
-            "/predict",
+        "documents": [
+            {
+                "id": r[0],
+                "title": r[1],
+                "filename": r[2],
+                "file_type": r[3],
+                "size_bytes": r[4],
+                "status": r[5],
+                "error": r[6],
+                "char_count": r[7],
+                "chunk_count": r[8],
+                "created_at": r[9].isoformat(),
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/admin/documents", status_code=202, dependencies=[Depends(require_admin)])
+def upload_document(
+    background: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+):
+    filename = os.path.basename(file.filename or "").strip()[:200]
+    if not filename:
+        raise HTTPException(400, "No file was uploaded.")
+
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"The file is larger than the {MAX_UPLOAD_MB} MB limit.")
+
+    try:
+        file_type = ingest.validate_file(filename, data)
+    except ingest.IngestError as exc:
+        raise HTTPException(400, str(exc))
+
+    clean_title = " ".join(title.split())[:150] or os.path.splitext(filename)[0]
+
+    try:
+        document_id = ingest.create_document_record(
+            clean_title, filename, file_type, len(data), ingest.sha256_hex(data)
+        )
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "This exact file has already been uploaded.")
+    except Exception as exc:
+        raise _service_error(exc)
+
+    # Extraction + embedding can take a while: run it after the response is sent.
+    background.add_task(ingest.process_document, document_id, clean_title, filename, data)
+
+    return {"id": document_id, "status": "processing"}
+
+
+@app.get("/api/admin/documents/{document_id}/chunks", dependencies=[Depends(require_admin)])
+def document_chunks(document_id: int):
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT title FROM kb_documents WHERE id = %s", (document_id,))
+                doc = cur.fetchone()
+                if not doc:
+                    raise HTTPException(404, "Document not found.")
+
+                cur.execute(
+                    "SELECT chunk_index, content FROM kb_chunks WHERE document_id = %s ORDER BY chunk_index",
+                    (document_id,),
+                )
+                chunks = [{"index": r[0], "content": r[1]} for r in cur.fetchall()]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _service_error(exc)
+
+    return {"title": doc[0], "chunks": chunks}
+
+
+@app.delete("/api/admin/documents/{document_id}", dependencies=[Depends(require_admin)])
+def delete_document(document_id: int):
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                # kb_chunks rows are removed automatically (ON DELETE CASCADE)
+                cur.execute("DELETE FROM kb_documents WHERE id = %s", (document_id,))
+                if cur.rowcount == 0:
+                    raise HTTPException(404, "Document not found.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _service_error(exc)
+
+    return {"deleted": document_id}
+
+
+@app.get("/api/admin/search", dependencies=[Depends(require_admin)])
+def search_debug(q: str = "", k: int = 5):
+    """Show which chunks a question retrieves and how similar they are."""
+    q = " ".join(q.split())[:MAX_QUESTION_CHARS]
+    if not q:
+        raise HTTPException(400, "Enter a question to test.")
+
+    try:
+        results = rag.retrieve(q, top_k=max(1, min(k, 10)))
+    except Exception as exc:
+        raise _service_error(exc)
+
+    return {
+        "min_score": rag.MIN_SCORE,
+        "results": [
+            {
+                "title": r["title"],
+                "chunk_index": r["chunk_index"],
+                "score": round(r["score"], 4),
+                "passes_threshold": r["score"] >= rag.MIN_SCORE,
+                "content": r["content"],
+            }
+            for r in results
         ],
     }
 
 
-# ======================================================================
-# NOTE
-# ======================================================================
-# This file keeps the existing API behavior intact and adds PostgreSQL
-# audit logging only after a successful prediction has been generated
-# and validated.
+# ----------------------------------------------------------------------------
+# Pages and static files
+# ----------------------------------------------------------------------------
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    return FileResponse(STATIC_DIR / "admin.html", media_type="text/html")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return {"service": "Portfolio AI Assistant", "status": "ok"}
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -1,666 +1,507 @@
-/* ======================================================================
-   Zepto Smart Commerce AI - document chatbot widget
+/* ==========================================================================
+   AI Assistant chat widget (vanilla JS, no dependencies).
 
-   Add to ANY web page:
+   Add to any page, just before </body>:
 
-     <script>
-       window.ZEPTO_CHATBOT_CONFIG = {
-         apiBase: "https://zepto-smart-commerce-ai.onrender.com"
-       };
-     </script>
-     <script src="https://zepto-smart-commerce-ai.onrender.com/chatbot/chatbot.js"></script>
+     <link rel="stylesheet" href="chatbot.css">
+     <script src="chatbot.js" defer
+             data-api="https://YOUR-ASSISTANT-SERVICE.onrender.com"
+             data-logo="images/logo.png"></script>
 
-   Optional settings (all have defaults):
-     apiBase       base URL of the FastAPI backend
-     title         header title
-     subtitle      text under the title
-     avatarUrl     image for the round button / header (default: built-in)
-     greeting      first message from the bot
-     placeholder   input placeholder
-     suggestions   ["Question 1", "Question 2"]  quick-reply chips
-     position      "right" | "left"
-     theme         "light" | "dark" | "auto"
-     offsetBottom  px from the bottom edge (default 24)
-     offsetSide    px from the side edge (default 24)
-     loadCss       false if you already included chatbot.css yourself
+   Optional attributes on the <script> tag:
+     data-title="AI Assistant"        header title
+     data-welcome="Hi! ..."           first message
+     data-suggestions="Q1|Q2|Q3"      starter question chips (use | between)
+     data-accent="#6d5efc"            accent colour
+     data-theme="dark|light|auto"     force a theme (default: follow the page)
 
-   Small API:  ZeptoChatbot.open()  .close()  .toggle()  .clear()
-   ====================================================================== */
-
+   Everything is created inside #pa-root, so the page's own HTML, CSS and
+   JavaScript are untouched.
+   ========================================================================== */
 (function () {
-  "use strict";
+  'use strict';
 
-  if (window.__zeptoChatbotLoaded) {
-    return;
-  }
-  window.__zeptoChatbotLoaded = true;
+  if (window.__paLoaded) return;
+  window.__paLoaded = true;
 
-  // ------------------------------------------------------------------
-  // Configuration
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------- config
+  var script = document.currentScript || document.querySelector('script[src*="chatbot.js"]');
+  var data = (script && script.dataset) || {};
 
-  var thisScript = document.currentScript;
-  var scriptBase = "";
-
-  if (thisScript && thisScript.src) {
-    scriptBase = thisScript.src.replace(/\/chatbot\/chatbot\.js(\?.*)?$/, "");
-  }
-
-  // 64x64 friendly assistant face, used when no avatarUrl is given.
-  var DEFAULT_AVATAR =
-    "data:image/svg+xml;utf8," +
-    encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-        '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
-        '<stop offset="0" stop-color="#a855f7"/><stop offset="1" stop-color="#6e1fd1"/>' +
-        "</linearGradient></defs>" +
-        '<rect width="64" height="64" fill="#0b0d1e"/>' +
-        '<rect x="10" y="14" width="44" height="38" rx="14" fill="url(#g)"/>' +
-        '<rect x="30" y="6" width="4" height="9" rx="2" fill="#a855f7"/>' +
-        '<circle cx="32" cy="6" r="3.5" fill="#12b76a"/>' +
-        '<circle cx="24" cy="31" r="4.5" fill="#fff"/>' +
-        '<circle cx="40" cy="31" r="4.5" fill="#fff"/>' +
-        '<circle cx="25" cy="32" r="2" fill="#161119"/>' +
-        '<circle cx="41" cy="32" r="2" fill="#161119"/>' +
-        '<path d="M24 42c3 3.5 13 3.5 16 0" stroke="#fff" stroke-width="3" ' +
-        'stroke-linecap="round" fill="none"/>' +
-        "</svg>"
-    );
-
-  var defaults = {
-    apiBase: scriptBase,
-    title: "Document Assistant",
-    subtitle: "Online - ask me about our documents",
-    avatarUrl: DEFAULT_AVATAR,
-    greeting:
-      "Hi! Ask me anything and I'll answer from the documents our team has uploaded.",
-    placeholder: "Type your question...",
-    suggestions: [],
-    position: "right",
-    theme: "light",
-    offsetBottom: 24,
-    offsetSide: 24,
-    loadCss: true,
-    maxLength: 500,
-    maxStoredMessages: 40,
+  var config = {
+    api: (data.api || '').replace(/\/+$/, ''),
+    logo: data.logo || '',
+    title: data.title || 'AI Assistant',
+    welcome:
+      data.welcome ||
+      "Hi! I'm the AI Assistant. Ask me about projects, technologies, professional experience or services.",
+    suggestions: data.suggestions
+      ? data.suggestions.split('|').map(function (s) { return s.trim(); }).filter(Boolean)
+      : ['What projects have you developed?', 'What technologies have you worked with?', 'What services do you offer?'],
+    accent: data.accent || '',
+    theme: data.theme || 'auto'
   };
 
-  var userConfig = window.ZEPTO_CHATBOT_CONFIG || {};
-  var cfg = {};
+  var STORAGE_KEY = 'pa-chat:v1';
+  var MAX_INPUT = 600;
+  var REQUEST_TIMEOUT_MS = 75000;
+  var SLOW_NOTICE_MS = 6000;
 
-  Object.keys(defaults).forEach(function (key) {
-    cfg[key] = userConfig[key] !== undefined ? userConfig[key] : defaults[key];
-  });
+  var messages = [];     // {role: 'user'|'assistant', content, sources?}
+  var sending = false;
+  var warmedUp = false;
 
-  cfg.apiBase = String(cfg.apiBase || "").replace(/\/+$/, "");
-
-  // ------------------------------------------------------------------
-  // Storage (private mode / blocked storage must never break the widget)
-  // ------------------------------------------------------------------
-
-  var SESSION_KEY = "zbot_session_id";
-  var HISTORY_KEY = "zbot_history_v1";
-
-  function storageGet(key) {
-    try {
-      return window.localStorage.getItem(key);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function storageSet(key, value) {
-    try {
-      window.localStorage.setItem(key, value);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  function storageRemove(key) {
-    try {
-      window.localStorage.removeItem(key);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  function newSessionId() {
-    var random = "";
-    for (var i = 0; i < 4; i++) {
-      random += Math.random().toString(36).slice(2, 8);
-    }
-    return "s" + Date.now().toString(36) + random.slice(0, 20);
-  }
-
-  var sessionId = storageGet(SESSION_KEY);
-
-  if (!sessionId) {
-    sessionId = newSessionId();
-    storageSet(SESSION_KEY, sessionId);
-  }
-
-  var history = [];
-
-  try {
-    history = JSON.parse(storageGet(HISTORY_KEY) || "[]");
-    if (!Array.isArray(history)) {
-      history = [];
-    }
-  } catch (e) {
-    history = [];
-  }
-
-  function saveHistory() {
-    if (history.length > cfg.maxStoredMessages) {
-      history = history.slice(history.length - cfg.maxStoredMessages);
-    }
-    storageSet(HISTORY_KEY, JSON.stringify(history));
-  }
-
-  // ------------------------------------------------------------------
-  // Small DOM helpers
-  // ------------------------------------------------------------------
-
-  var SVG_NS = "http://www.w3.org/2000/svg";
-
-  function el(tag, className, attrs) {
+  // ---------------------------------------------------------------- helpers
+  function el(tag, className, text) {
     var node = document.createElement(tag);
-    if (className) {
-      node.className = className;
-    }
-    if (attrs) {
-      Object.keys(attrs).forEach(function (name) {
-        node.setAttribute(name, attrs[name]);
-      });
-    }
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
     return node;
   }
 
-  function icon(pathData, size) {
-    var svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("width", String(size || 20));
-    svg.setAttribute("height", String(size || 20));
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "2");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    svg.setAttribute("aria-hidden", "true");
-
-    var path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", pathData);
-    svg.appendChild(path);
-
-    return svg;
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
 
-  var ICON_CLOSE = "M18 6 6 18M6 6l12 12";
-  var ICON_SEND = "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z";
-  var ICON_TRASH =
-    "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6";
-
-  // ------------------------------------------------------------------
-  // Stylesheet
-  // ------------------------------------------------------------------
-
-  if (cfg.loadCss && !document.getElementById("zbot-css")) {
-    var link = el("link");
-    link.id = "zbot-css";
-    link.rel = "stylesheet";
-    link.href =
-      (scriptBase || cfg.apiBase) + "/chatbot/chatbot.css";
-    document.head.appendChild(link);
+  // Tiny, safe markdown: **bold**, `code`, "- " bullets, auto-linked http(s) URLs.
+  // All text is HTML-escaped first, so model output can never inject markup.
+  function inline(text) {
+    var s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(https?:\/\/[^\s<]*[^\s<.,;:!?)\]])/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    return s;
   }
 
-  // ------------------------------------------------------------------
-  // Build the widget
-  // ------------------------------------------------------------------
+  function renderMarkdown(text) {
+    var html = '';
+    var inList = false;
+    var paragraph = [];
 
-  var root = el("div", "zbot-root", {
-    "data-open": "false",
-    "data-position": cfg.position === "left" ? "left" : "right",
-    "data-theme": cfg.theme,
-  });
-  root.style.setProperty("--zbot-offset-bottom", cfg.offsetBottom + "px");
-  root.style.setProperty("--zbot-offset-side", cfg.offsetSide + "px");
+    function flushParagraph() {
+      if (paragraph.length) { html += '<p>' + paragraph.join('<br>') + '</p>'; paragraph = []; }
+    }
+    function closeList() { if (inList) { html += '</ul>'; inList = false; } }
 
-  // Panel
-  var panel = el("section", "zbot-panel", {
-    id: "zbot-panel",
-    role: "dialog",
-    "aria-label": cfg.title,
-  });
+    String(text).replace(/\r/g, '').split('\n').forEach(function (raw) {
+      var line = raw.trim();
+      var bullet = line.match(/^[-*\u2022]\s+(.*)$/);
 
-  var header = el("div", "zbot-header");
+      if (!line) { flushParagraph(); closeList(); return; }
 
-  var headerAvatar = el("div", "zbot-header-avatar");
-  var headerImg = el("img", null, { alt: "", src: cfg.avatarUrl });
-  headerAvatar.appendChild(headerImg);
+      if (bullet) {
+        flushParagraph();
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += '<li>' + inline(bullet[1]) + '</li>';
+      } else {
+        closeList();
+        paragraph.push(inline(line.replace(/^#{1,6}\s+/, '')));
+      }
+    });
 
-  var headerText = el("div", "zbot-header-text");
-  var titleEl = el("p", "zbot-title");
-  titleEl.textContent = cfg.title;
-  var subtitleEl = el("p", "zbot-subtitle");
-  subtitleEl.textContent = cfg.subtitle;
-  headerText.appendChild(titleEl);
-  headerText.appendChild(subtitleEl);
+    flushParagraph();
+    closeList();
+    return html;
+  }
 
-  var clearBtn = el("button", "zbot-icon-btn", {
-    type: "button",
-    "aria-label": "Clear conversation",
-    title: "Clear conversation",
-  });
-  clearBtn.appendChild(icon(ICON_TRASH, 18));
+  var ICONS = {
+    send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+    reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
+    logo: '<svg class="pa-fallback-logo" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="24" fill="#6d5efc"/><path d="M24 11l3.2 8.8L36 23l-8.8 3.2L24 35l-3.2-8.8L12 23l8.8-3.2z" fill="#fff"/></svg>'
+  };
 
-  var closeBtn = el("button", "zbot-icon-btn", {
-    type: "button",
-    "aria-label": "Close chat",
-    title: "Close",
-  });
-  closeBtn.appendChild(icon(ICON_CLOSE, 20));
+  function logoNode() {
+    var holder = el('span');
+    holder.style.display = 'contents';
 
-  header.appendChild(headerAvatar);
-  header.appendChild(headerText);
-  header.appendChild(clearBtn);
+    if (!config.logo) { holder.innerHTML = ICONS.logo; return holder; }
+
+    var img = new Image();
+    img.src = config.logo;
+    img.alt = '';
+    img.decoding = 'async';
+    img.addEventListener('error', function () { holder.innerHTML = ICONS.logo; });
+    holder.appendChild(img);
+    return holder;
+  }
+
+  // ---------------------------------------------------------------- state persistence
+  function saveState() {
+    try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30))); } catch (e) { /* storage blocked */ }
+  }
+
+  function loadState() {
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]');
+      if (Array.isArray(saved)) {
+        messages = saved.filter(function (m) {
+          return m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string';
+        });
+      }
+    } catch (e) { messages = []; }
+  }
+
+  // ---------------------------------------------------------------- DOM
+  var root = el('div');
+  root.id = 'pa-root';
+
+  var launcher = el('button', 'pa-launcher');
+  launcher.type = 'button';
+  launcher.setAttribute('aria-label', 'Open ' + config.title);
+  launcher.appendChild(logoNode());
+  launcher.appendChild(el('span', 'pa-dot'));
+
+  var panel = el('section', 'pa-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', config.title);
+
+  var header = el('div', 'pa-header');
+  var avatar = el('div', 'pa-avatar');
+  avatar.appendChild(logoNode());
+  avatar.appendChild(el('span', 'pa-dot'));
+  var titles = el('div', 'pa-titles');
+  titles.appendChild(el('div', 'pa-title', config.title));
+  var statusLine = el('div', 'pa-status', 'Online');
+  titles.appendChild(statusLine);
+
+  var resetBtn = el('button', 'pa-icon-btn');
+  resetBtn.type = 'button';
+  resetBtn.title = 'New conversation';
+  resetBtn.setAttribute('aria-label', 'Start a new conversation');
+  resetBtn.innerHTML = ICONS.reset;
+
+  var closeBtn = el('button', 'pa-icon-btn');
+  closeBtn.type = 'button';
+  closeBtn.title = 'Close';
+  closeBtn.setAttribute('aria-label', 'Close chat');
+  closeBtn.innerHTML = ICONS.close;
+
+  header.appendChild(avatar);
+  header.appendChild(titles);
+  header.appendChild(resetBtn);
   header.appendChild(closeBtn);
 
-  var messagesEl = el("div", "zbot-messages", {
-    role: "log",
-    "aria-live": "polite",
-  });
+  var list = el('div', 'pa-messages');
+  list.setAttribute('role', 'log');
+  list.setAttribute('aria-live', 'polite');
 
-  var chipsEl = el("div", "zbot-chips");
+  var form = el('form', 'pa-composer');
+  var input = el('textarea', 'pa-input');
+  input.rows = 1;
+  input.maxLength = MAX_INPUT;
+  input.placeholder = 'Ask about projects, skills, services...';
+  input.setAttribute('aria-label', 'Your question');
+  var sendBtn = el('button', 'pa-send');
+  sendBtn.type = 'submit';
+  sendBtn.setAttribute('aria-label', 'Send message');
+  sendBtn.innerHTML = ICONS.send;
+  form.appendChild(input);
+  form.appendChild(sendBtn);
 
-  var composer = el("div", "zbot-composer");
-  var input = el("textarea", "zbot-input", {
-    rows: "1",
-    maxlength: String(cfg.maxLength),
-    placeholder: cfg.placeholder,
-    "aria-label": "Your question",
-  });
-  var sendBtn = el("button", "zbot-send", {
-    type: "button",
-    "aria-label": "Send message",
-  });
-  sendBtn.appendChild(icon(ICON_SEND, 18));
-  composer.appendChild(input);
-  composer.appendChild(sendBtn);
-
-  var footnote = el("div", "zbot-footnote");
-  footnote.textContent = "Answers come from uploaded documents only.";
+  var footer = el('div', 'pa-footer', 'AI answers come from uploaded documents and may be incomplete.');
 
   panel.appendChild(header);
-  panel.appendChild(messagesEl);
-  panel.appendChild(chipsEl);
-  panel.appendChild(composer);
-  panel.appendChild(footnote);
-
-  // Launcher (round avatar with green "online" dot)
-  var launcher = el("button", "zbot-launcher", {
-    type: "button",
-    "aria-label": "Open chat",
-    "aria-expanded": "false",
-    "aria-controls": "zbot-panel",
-  });
-  var launcherImg = el("img", "zbot-launcher-avatar", {
-    alt: "",
-    src: cfg.avatarUrl,
-  });
-  var launcherClose = el("span", "zbot-launcher-close");
-  launcherClose.appendChild(icon(ICON_CLOSE, 26));
-  var onlineDot = el("span", "zbot-online-dot");
-  launcher.appendChild(launcherImg);
-  launcher.appendChild(launcherClose);
-  launcher.appendChild(onlineDot);
-
+  panel.appendChild(list);
+  panel.appendChild(form);
+  panel.appendChild(footer);
   root.appendChild(panel);
   root.appendChild(launcher);
 
-  // ------------------------------------------------------------------
-  // Rendering messages
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------- rendering
+  function scrollToBottom() { list.scrollTop = list.scrollHeight; }
 
-  function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
+  function addBubble(role, content, opts) {
+    opts = opts || {};
+    var bubble = el('div', 'pa-msg ' + (role === 'user' ? 'pa-user' : 'pa-bot') + (opts.error ? ' pa-error' : ''));
 
-  function addMessage(role, text, options) {
-    options = options || {};
-
-    var row = el("div", "zbot-row", { "data-role": role });
-
-    if (options.error) {
-      row.setAttribute("data-error", "true");
-    }
-
-    var bubble = el("div", "zbot-bubble");
-    bubble.textContent = text; // textContent: never interpreted as HTML
-    row.appendChild(bubble);
-
-    if (options.sources && options.sources.length) {
-      var sourcesEl = el("div", "zbot-sources");
-      var label = el("span");
-      label.textContent = "Source:";
-      sourcesEl.appendChild(label);
-
-      options.sources.forEach(function (source) {
-        var chip = el("span", "zbot-source");
-        chip.textContent = source.title;
-        sourcesEl.appendChild(chip);
-      });
-
-      row.appendChild(sourcesEl);
-    }
-
-    messagesEl.appendChild(row);
-    scrollToBottom();
-
-    return row;
-  }
-
-  function showTyping(note) {
-    var row = el("div", "zbot-row zbot-typing", { "data-role": "bot" });
-    var bubble = el("div", "zbot-bubble", { "aria-label": "Assistant is typing" });
-
-    for (var i = 0; i < 3; i++) {
-      bubble.appendChild(el("span", "zbot-dot"));
-    }
-
-    row.appendChild(bubble);
-
-    if (note) {
-      var noteEl = el("div", "zbot-typing-note");
-      noteEl.textContent = note;
-      row.appendChild(noteEl);
-    }
-
-    messagesEl.appendChild(row);
-    scrollToBottom();
-
-    return row;
-  }
-
-  function renderHistory() {
-    messagesEl.textContent = "";
-
-    if (!history.length) {
-      addMessage("bot", cfg.greeting);
-    }
-
-    history.forEach(function (item) {
-      addMessage(item.role, item.text, {
-        sources: item.sources,
-        error: item.error,
-      });
-    });
-
-    renderChips();
-  }
-
-  function renderChips() {
-    chipsEl.textContent = "";
-
-    var hasUserMessage = history.some(function (item) {
-      return item.role === "user";
-    });
-
-    if (hasUserMessage || !cfg.suggestions || !cfg.suggestions.length) {
-      chipsEl.style.display = "none";
-      return;
-    }
-
-    chipsEl.style.display = "flex";
-
-    cfg.suggestions.slice(0, 4).forEach(function (text) {
-      var chip = el("button", "zbot-chip", { type: "button" });
-      chip.textContent = text;
-      chip.addEventListener("click", function () {
-        sendMessage(text);
-      });
-      chipsEl.appendChild(chip);
-    });
-  }
-
-  // ------------------------------------------------------------------
-  // Talking to the API
-  // ------------------------------------------------------------------
-
-  var busy = false;
-
-  function sleep(ms) {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, ms);
-    });
-  }
-
-  // The free Render tier sleeps when idle; the first request may need
-  // up to a minute. Retry a couple of times on "waking up" responses.
-  async function askApi(message, onWaking) {
-    var url = cfg.apiBase + "/chatbot/chat";
-    var attempts = 3;
-
-    for (var attempt = 1; attempt <= attempts; attempt++) {
-      var controller = new AbortController();
-      var timer = setTimeout(function () {
-        controller.abort();
-      }, 70000);
-
-      try {
-        var response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: message, session_id: sessionId }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timer);
-
-        if ([502, 503, 504].indexOf(response.status) !== -1 && attempt < attempts) {
-          onWaking();
-          await sleep(4000);
-          continue;
-        }
-
-        var data = null;
-
-        try {
-          data = await response.json();
-        } catch (e) {
-          data = null;
-        }
-
-        if (!response.ok) {
-          var detail = data && data.detail;
-          throw new Error(
-            typeof detail === "string"
-              ? detail
-              : "The assistant is unavailable right now."
-          );
-        }
-
-        return data;
-      } catch (error) {
-        clearTimeout(timer);
-
-        var isNetwork =
-          error.name === "AbortError" || error instanceof TypeError;
-
-        if (isNetwork && attempt < attempts) {
-          onWaking();
-          await sleep(4000);
-          continue;
-        }
-
-        if (isNetwork) {
-          throw new Error(
-            "I can't reach the server right now. It may be starting up - please try again in a minute."
-          );
-        }
-
-        throw error;
+    if (role === 'user') {
+      bubble.textContent = content;
+    } else {
+      bubble.innerHTML = renderMarkdown(content);
+      if (opts.sources && opts.sources.length) {
+        bubble.appendChild(el('div', 'pa-sources', 'Source: ' + opts.sources.join(', ')));
       }
     }
+
+    list.appendChild(bubble);
+    scrollToBottom();
+    return bubble;
   }
 
-  async function sendMessage(rawText) {
-    var text = String(rawText || "").trim();
+  function showChips() {
+    if (!config.suggestions.length) return;
+    var wrap = el('div', 'pa-chips');
+    wrap.setAttribute('data-pa-chips', '1');
 
-    if (!text || busy) {
+    config.suggestions.forEach(function (text) {
+      var chip = el('button', 'pa-chip', text);
+      chip.type = 'button';
+      chip.addEventListener('click', function () { ask(text); });
+      wrap.appendChild(chip);
+    });
+
+    list.appendChild(wrap);
+  }
+
+  function removeChips() {
+    var chips = list.querySelector('[data-pa-chips]');
+    if (chips) chips.remove();
+  }
+
+  function renderAll() {
+    list.replaceChildren();
+    addBubble('assistant', config.welcome);
+
+    messages.forEach(function (m) {
+      addBubble(m.role, m.content, { sources: m.sources });
+    });
+
+    if (!messages.length) showChips();
+  }
+
+  function showTyping() {
+    var bubble = el('div', 'pa-msg pa-bot');
+    var dots = el('div', 'pa-typing');
+    dots.setAttribute('aria-label', 'The assistant is typing');
+    dots.appendChild(el('span'));
+    dots.appendChild(el('span'));
+    dots.appendChild(el('span'));
+    bubble.appendChild(dots);
+    list.appendChild(bubble);
+    scrollToBottom();
+    return bubble;
+  }
+
+  // ---------------------------------------------------------------- networking
+  function apiUrl(path) { return config.api + path; }
+
+  function warmUp() {
+    if (warmedUp) return;
+    warmedUp = true;
+    // Wakes a sleeping Render instance while the visitor is still typing.
+    try { fetch(apiUrl('/health'), { mode: 'cors', cache: 'no-store' }).catch(function () {}); } catch (e) {}
+  }
+
+  function postChat(payload, signal) {
+    return fetch(apiUrl('/api/chat'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: signal
+    });
+  }
+
+  function friendlyError(status, detail) {
+    if (detail) return detail;
+    if (status === 429) return "You're sending messages too quickly. Please wait a moment.";
+    if (status === 503) return 'The assistant is temporarily unavailable. Please try again shortly.';
+    return 'Something went wrong. Please try again.';
+  }
+
+  async function ask(text) {
+    text = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!text || sending) return;
+
+    if (!config.api && !/^https?:/i.test(location.protocol)) {
+      addBubble('assistant', 'The assistant is not configured (missing data-api on the script tag).', { error: true });
       return;
     }
 
-    text = text.slice(0, cfg.maxLength);
-    busy = true;
+    sending = true;
     sendBtn.disabled = true;
-    input.value = "";
-    autoResize();
+    input.value = '';
+    autosize();
+    removeChips();
 
-    history.push({ role: "user", text: text });
-    addMessage("user", text);
-    renderChips();
+    var history = messages.slice(-6).map(function (m) {
+      return { role: m.role, content: m.content.slice(0, 1000) };
+    });
 
-    var typingRow = showTyping();
-    var wakingShown = false;
+    messages.push({ role: 'user', content: text });
+    addBubble('user', text);
+    saveState();
+
+    var typing = showTyping();
+    var slowNote = null;
+    var slowTimer = setTimeout(function () {
+      slowNote = el('div', 'pa-note', 'The assistant is waking up. The first reply can take up to a minute.');
+      typing.appendChild(slowNote);
+      scrollToBottom();
+    }, SLOW_NOTICE_MS);
+
+    var payload = { message: text.slice(0, MAX_INPUT), history: history };
 
     try {
-      var data = await askApi(text, function () {
-        if (!wakingShown) {
-          wakingShown = true;
-          typingRow.remove();
-          typingRow = showTyping("Waking up the server, one moment...");
-        }
-      });
+      var response;
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS);
 
-      typingRow.remove();
-
-      var answer = (data && data.answer) || "Sorry, I didn't get an answer.";
-      var sources = (data && data.sources) || [];
-
-      history.push({ role: "bot", text: answer, sources: sources });
-      addMessage("bot", answer, { sources: sources });
-    } catch (error) {
-      typingRow.remove();
-
-      var message = error && error.message ? error.message : "Something went wrong.";
-
-      history.push({ role: "bot", text: message, error: true });
-      addMessage("bot", message, { error: true });
-    }
-
-    saveHistory();
-    busy = false;
-    sendBtn.disabled = false;
-    input.focus();
-  }
-
-  // ------------------------------------------------------------------
-  // Open / close
-  // ------------------------------------------------------------------
-
-  var warmedUp = false;
-
-  function setOpen(open) {
-    root.setAttribute("data-open", open ? "true" : "false");
-    launcher.setAttribute("aria-expanded", open ? "true" : "false");
-    launcher.setAttribute("aria-label", open ? "Close chat" : "Open chat");
-
-    if (open) {
-      scrollToBottom();
-      setTimeout(function () {
-        input.focus();
-      }, 50);
-
-      // Wake the backend while the visitor is still reading/typing.
-      if (!warmedUp) {
-        warmedUp = true;
-        try {
-          fetch(cfg.apiBase + "/chatbot/status").catch(function () {});
-        } catch (e) {
-          /* ignore */
-        }
+      try {
+        response = await postChat(payload, controller.signal);
+      } catch (networkError) {
+        if (networkError && networkError.name === 'AbortError') throw networkError;
+        // One quick retry: covers a connection dropped while the server was waking.
+        await new Promise(function (r) { setTimeout(r, 1500); });
+        response = await postChat(payload, controller.signal);
+      } finally {
+        clearTimeout(timeout);
       }
+
+      var body = null;
+      try { body = await response.json(); } catch (e) { body = null; }
+
+      typing.remove();
+
+      if (!response.ok) {
+        addBubble('assistant', friendlyError(response.status, body && typeof body.detail === 'string' ? body.detail : ''), { error: true });
+      } else {
+        var answer = (body && body.answer) || 'Sorry, I did not receive an answer.';
+        var sources = (body && body.sources) || [];
+        messages.push({ role: 'assistant', content: answer, sources: sources });
+        addBubble('assistant', answer, { sources: sources });
+      }
+    } catch (error) {
+      typing.remove();
+      var timedOut = error && error.name === 'AbortError';
+      addBubble(
+        'assistant',
+        timedOut
+          ? 'The assistant took too long to respond. Please try again.'
+          : "I couldn't reach the assistant. Check your connection and try again.",
+        { error: true }
+      );
+    } finally {
+      clearTimeout(slowTimer);
+      sending = false;
+      sendBtn.disabled = !input.value.trim();
+      saveState();
+      if (root.classList.contains('pa-open')) input.focus();
     }
   }
 
-  function isOpen() {
-    return root.getAttribute("data-open") === "true";
+  // ---------------------------------------------------------------- open / close
+  var previousBodyOverflow = '';
+  var mobileQuery = window.matchMedia ? window.matchMedia('(max-width: 520px)') : { matches: false };
+
+  function openChat() {
+    root.classList.add('pa-open');
+    launcher.setAttribute('aria-expanded', 'true');
+    warmUp();
+    if (mobileQuery.matches) {
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    scrollToBottom();
+    setTimeout(function () { input.focus(); }, 50);
   }
 
-  function clearConversation() {
-    history = [];
-    storageRemove(HISTORY_KEY);
-    sessionId = newSessionId();
-    storageSet(SESSION_KEY, sessionId);
-    renderHistory();
-  }
-
-  // ------------------------------------------------------------------
-  // Events
-  // ------------------------------------------------------------------
-
-  function autoResize() {
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 110) + "px";
-  }
-
-  launcher.addEventListener("click", function () {
-    setOpen(!isOpen());
-  });
-
-  closeBtn.addEventListener("click", function () {
-    setOpen(false);
+  function closeChat() {
+    root.classList.remove('pa-open');
+    launcher.setAttribute('aria-expanded', 'false');
+    if (mobileQuery.matches) document.body.style.overflow = previousBodyOverflow;
     launcher.focus();
+  }
+
+  launcher.addEventListener('click', openChat);
+  launcher.addEventListener('pointerenter', warmUp);
+  launcher.addEventListener('focus', warmUp);
+  closeBtn.addEventListener('click', closeChat);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && root.classList.contains('pa-open')) closeChat();
   });
 
-  clearBtn.addEventListener("click", clearConversation);
-
-  sendBtn.addEventListener("click", function () {
-    sendMessage(input.value);
+  resetBtn.addEventListener('click', function () {
+    if (sending) return;
+    messages = [];
+    saveState();
+    renderAll();
+    input.focus();
   });
 
-  input.addEventListener("input", autoResize);
+  // ---------------------------------------------------------------- composer behaviour
+  function autosize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  }
 
-  input.addEventListener("keydown", function (event) {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      sendMessage(input.value);
+  input.addEventListener('input', function () {
+    autosize();
+    sendBtn.disabled = sending || !input.value.trim();
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      form.requestSubmit();
     }
   });
 
-  root.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && isOpen()) {
-      setOpen(false);
-      launcher.focus();
-    }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    ask(input.value);
   });
 
-  // ------------------------------------------------------------------
-  // Start
-  // ------------------------------------------------------------------
+  // ---------------------------------------------------------------- theme: follow the host page
+  function luminance(color) {
+    var m = String(color).match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    var p = m[1].split(/[,\s/]+/).filter(Boolean).map(parseFloat);
+    if (p.length >= 4 && p[3] === 0) return null; // transparent
+    return (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255;
+  }
 
-  function mount() {
-    renderHistory();
+  function detectTheme() {
+    if (config.theme === 'dark' || config.theme === 'light') return config.theme;
+
+    var targets = [document.body, document.documentElement];
+    for (var i = 0; i < targets.length; i++) {
+      if (!targets[i]) continue;
+      var l = luminance(getComputedStyle(targets[i]).backgroundColor);
+      if (l !== null) return l < 0.5 ? 'dark' : 'light';
+    }
+    return window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  function applyTheme() { root.setAttribute('data-pa-theme', detectTheme()); }
+
+  var themeTimer = null;
+  function scheduleTheme() {
+    clearTimeout(themeTimer);
+    themeTimer = setTimeout(function () { applyTheme(); setTimeout(applyTheme, 450); }, 60);
+  }
+
+  // ---------------------------------------------------------------- start
+  function start() {
+    if (config.accent) root.style.setProperty('--pa-accent', config.accent);
+
+    loadState();
+    renderAll();
+    sendBtn.disabled = true;
     document.body.appendChild(root);
+    applyTheme();
+
+    if (window.MutationObserver) {
+      var observer = new MutationObserver(scheduleTheme);
+      observer.observe(document.documentElement, { attributes: true });
+      observer.observe(document.body, { attributes: true });
+    }
+    if (window.matchMedia) {
+      var mq = matchMedia('(prefers-color-scheme: light)');
+      if (mq.addEventListener) mq.addEventListener('change', scheduleTheme);
+    }
+    window.addEventListener('load', scheduleTheme);
+
+    window.PearlAssistant = { open: openChat, close: closeChat };
   }
 
-  if (document.body) {
-    mount();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    document.addEventListener("DOMContentLoaded", mount);
+    start();
   }
-
-  window.ZeptoChatbot = {
-    open: function () {
-      setOpen(true);
-    },
-    close: function () {
-      setOpen(false);
-    },
-    toggle: function () {
-      setOpen(!isOpen());
-    },
-    clear: clearConversation,
-  };
 })();
