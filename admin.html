@@ -796,7 +796,9 @@
         added += 1;
       } catch (error) {
         entry.state = "error";
-        entry.note = error.message;
+        entry.note = error.status === 405
+          ? "Server can't accept files yet (python-multipart missing)"
+          : error.message;
       }
 
       renderQueue();
