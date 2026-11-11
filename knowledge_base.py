@@ -123,6 +123,43 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
+def _extract_docx(data: bytes) -> str:
+    """
+    Read a .docx using only the standard library (a .docx is a zip file
+    containing word/document.xml), so no extra package is required.
+    """
+
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            xml_bytes = archive.read("word/document.xml")
+    except (zipfile.BadZipFile, KeyError):
+        raise ValueError("This file is not a valid .docx document.")
+
+    root = ET.fromstring(xml_bytes)
+    paragraphs: List[str] = []
+
+    for paragraph in root.iter(f"{ns}p"):
+        parts: List[str] = []
+
+        for node in paragraph.iter():
+            if node.tag == f"{ns}t" and node.text:
+                parts.append(node.text)
+            elif node.tag in (f"{ns}tab", f"{ns}br"):
+                parts.append(" ")
+
+        line = "".join(parts).strip()
+
+        if line:
+            paragraphs.append(line)
+
+    return "\n\n".join(paragraphs)
+
+
 def extract_text(filename: str, data: bytes) -> str:
     """Return the plain text of an uploaded file."""
 
@@ -142,18 +179,7 @@ def extract_text(filename: str, data: bytes) -> str:
         text = "\n\n".join(pages)
 
     elif extension == ".docx":
-        import docx
-
-        document = docx.Document(io.BytesIO(data))
-        parts = [paragraph.text for paragraph in document.paragraphs]
-
-        for table in document.tables:
-            for row in table.rows:
-                parts.append(
-                    " | ".join(cell.text.strip() for cell in row.cells)
-                )
-
-        text = "\n\n".join(parts)
+        text = _extract_docx(data)
 
     else:
         try:
