@@ -98,10 +98,17 @@ try:
     register_chatbot(app)
 
 except Exception as chatbot_exc:  # noqa: BLE001
+    chatbot_load_error = f"{type(chatbot_exc).__name__}: {chatbot_exc}"[:400]
+
     logging.getLogger("zepto_fastapi").exception(
         "Chatbot module NOT loaded: %s",
-        chatbot_exc,
+        chatbot_load_error,
     )
+
+    @app.get("/chatbot/health", include_in_schema=False)
+    def chatbot_not_loaded():
+        """Open this URL in a browser to see why the chatbot did not load."""
+        return {"status": "not_loaded", "error": chatbot_load_error}
 
 
 # ======================================================================
