@@ -16,7 +16,7 @@
   var MAX_HISTORY = 6;
   var REQUEST_TIMEOUT_MS = 90000;
   var RETRY_STATUSES = [502, 503, 504];
-  var MAX_ATTEMPTS = 3;
+  var MAX_ATTEMPTS = 2;
 
   var DEFAULTS = {
     apiBase: "",
@@ -371,12 +371,29 @@
 
         if (transient && attempt < MAX_ATTEMPTS) {
           if (onRetry) { onRetry(attempt); }
-          return sleep(attempt * 4000).then(run);
+          return sleep(2500).then(run);
         }
         throw err;
       });
     }
     return run();
+  }
+
+  // A no-cors request succeeds whenever the server is up, even if the
+  // browser blocks reading the reply - so it tells "server down" apart
+  // from "server up but chatbot/CORS not enabled".
+  function diagnose() {
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 8000);
+    return fetch(apiUrl("/health"), { method: "GET", mode: "no-cors", signal: controller.signal })
+      .then(function () {
+        clearTimeout(timer);
+        return "The server is online, but the chatbot service isn't responding. The backend probably needs to be redeployed - please tell the admin.";
+      })
+      .catch(function () {
+        clearTimeout(timer);
+        return "I couldn't reach the server. It may still be waking up (free hosting) - please try again in a minute.";
+      });
   }
 
   // ---------------------------------------------------------
@@ -431,9 +448,14 @@
       var msg;
       if (err.status === 429) {
         msg = "You're asking quickly - please wait a few seconds and try again.";
-      } else if (err.name === "AbortError" || err instanceof TypeError || RETRY_STATUSES.indexOf(err.status) !== -1) {
-        msg = "I couldn't reach the server. It may still be waking up - please try again in a moment.";
+      } else if (err.status === 404 || err.status === 503) {
+        msg = "The chatbot service isn't available on the server yet. Please ask the admin to check the backend deployment.";
         els.dot.classList.add("zc-offline");
+      } else if (err.name === "AbortError" || err instanceof TypeError || RETRY_STATUSES.indexOf(err.status) !== -1) {
+        els.dot.classList.add("zc-offline");
+        return diagnose().then(function (m) {
+          messages.push({ role: "assistant", content: m, error: true });
+        });
       } else {
         msg = err.message || "Something went wrong. Please try again.";
       }
