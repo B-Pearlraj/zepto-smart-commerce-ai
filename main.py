@@ -53,8 +53,19 @@ from fastapi.middleware.cors import CORSMiddleware
 # Document chatbot (knowledge base + admin endpoints)
 # ----------------------------------------------------------------------
 import os
-from chatbot_router import router as chatbot_router
-from knowledge_base import ensure_chatbot_tables
+
+# Guarded so that a missing chatbot file / package can never stop the
+# prediction API from starting. The reason is logged and shown at
+# /chatbot/status.
+try:
+    from chatbot_router import router as chatbot_router
+    from knowledge_base import ensure_chatbot_tables
+    CHATBOT_IMPORT_ERROR = None
+
+except Exception as _chatbot_exc:
+    chatbot_router = None
+    ensure_chatbot_tables = None
+    CHATBOT_IMPORT_ERROR = f"{type(_chatbot_exc).__name__}: {_chatbot_exc}"
 
 from config import (
     API_TITLE,
@@ -100,17 +111,21 @@ app = FastAPI(
 # The floating chat widget runs in the user's browser (on the Streamlit
 # UI's domain) and calls this API directly, so that domain must be allowed.
 # Override with the CORS_ORIGINS environment variable (comma separated).
-_default_origins = (
-    "https://zepto-smart-commerce-ui.onrender.com,"
-    "http://localhost:8501,"
-    "http://127.0.0.1:8501"
-)
-
-CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", _default_origins).split(",")
-    if origin.strip()
+_default_origins = [
+    "https://zepto-smart-commerce-ui.onrender.com",
+    "http://localhost:8501",
+    "http://127.0.0.1:8501",
 ]
+
+# Extra origins can be added with CORS_ORIGINS or ALLOWED_ORIGINS
+# (comma separated). The default UI domains are always allowed.
+CORS_ORIGINS = list(_default_origins)
+
+for _var in ("CORS_ORIGINS", "ALLOWED_ORIGINS"):
+    for origin in os.getenv(_var, "").split(","):
+        origin = origin.strip().rstrip("/")
+        if origin and origin != "*" and origin not in CORS_ORIGINS:
+            CORS_ORIGINS.append(origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -120,7 +135,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chatbot_router)
+if chatbot_router is not None:
+    app.include_router(chatbot_router)
+
+else:
+    logger.error("Chatbot disabled - import failed: %s", CHATBOT_IMPORT_ERROR)
+
+    @app.get("/chatbot/status", include_in_schema=False)
+    def chatbot_status_unavailable():
+        raise HTTPException(
+            status_code=503,
+            detail=f"Chatbot module failed to load: {CHATBOT_IMPORT_ERROR}",
+        )
 
 
 # ======================================================================
@@ -159,6 +185,9 @@ def setup_chatbot_tables():
     Idempotent, so it is safe on every restart. A failure here must not
     stop the prediction API from starting.
     """
+
+    if ensure_chatbot_tables is None:
+        return
 
     try:
         ensure_chatbot_tables()
