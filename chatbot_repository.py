@@ -174,29 +174,84 @@ def _extract_pdf(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
+_W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MAX_DOCX_XML_BYTES = 40 * 1024 * 1024
+
+
+def _docx_paragraph_text(paragraph) -> str:
+    parts = []
+
+    for node in paragraph.iter():
+        if node.tag == _W_NS + "t":
+            parts.append(node.text or "")
+        elif node.tag == _W_NS + "tab":
+            parts.append("\t")
+        elif node.tag in (_W_NS + "br", _W_NS + "cr"):
+            parts.append("\n")
+
+    return "".join(parts)
+
+
 def _extract_docx(data: bytes) -> str:
+    """
+    Read a .docx using only the Python standard library (a .docx is a zip
+    file with the text in word/document.xml). No extra package such as
+    python-docx / lxml is needed, which keeps the Render build small.
+    """
+
+    import zipfile
+    import xml.etree.ElementTree as ElementTree
+
     try:
-        import docx  # python-docx
-    except ImportError as exc:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            info = archive.getinfo("word/document.xml")
+
+            if info.file_size > _MAX_DOCX_XML_BYTES:
+                raise DocumentError("This Word file is too large to read.")
+
+            xml_bytes = archive.read("word/document.xml")
+
+    except DocumentError:
+        raise
+    except (zipfile.BadZipFile, KeyError) as exc:
         raise DocumentError(
-            "Word support needs the 'python-docx' package "
-            "(pip install python-docx)."
+            "Could not read this Word file. Make sure it is a .docx "
+            "(not an old .doc) and is not corrupted."
         ) from exc
 
     try:
-        document = docx.Document(io.BytesIO(data))
-    except Exception as exc:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError as exc:
         raise DocumentError(f"Could not read this Word file: {exc}") from exc
 
-    parts = [paragraph.text for paragraph in document.paragraphs]
+    body = root.find(_W_NS + "body")
 
-    for table in document.tables:
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-            if cells:
-                parts.append(" | ".join(cells))
+    if body is None:
+        return ""
 
-    return "\n".join(parts)
+    lines: List[str] = []
+
+    for child in body:
+        if child.tag == _W_NS + "p":
+            lines.append(_docx_paragraph_text(child))
+
+        elif child.tag == _W_NS + "tbl":
+            for row in child.iter(_W_NS + "tr"):
+                cells = []
+
+                for cell in row.findall(_W_NS + "tc"):
+                    text = " ".join(
+                        _docx_paragraph_text(paragraph).strip()
+                        for paragraph in cell.iter(_W_NS + "p")
+                    ).strip()
+
+                    if text:
+                        cells.append(text)
+
+                if cells:
+                    lines.append(" | ".join(cells))
+
+    return "\n".join(lines)
 
 
 def extract_text(filename: str, data: bytes) -> str:
@@ -281,7 +336,7 @@ def chunk_text(text: str) -> List[str]:
 
     for unit in units:
         if current and current_len + len(unit) + 1 > CHUNK_TARGET_CHARS:
-            chunks.append(" ".join(current))
+            chunks.append("\n".join(current))
 
             tail = current[-1]
             if len(tail) <= CHUNK_OVERLAP_CHARS:
@@ -293,7 +348,7 @@ def chunk_text(text: str) -> List[str]:
         current_len += len(unit) + 1
 
     if current:
-        chunks.append(" ".join(current))
+        chunks.append("\n".join(current))
 
     return chunks
 
