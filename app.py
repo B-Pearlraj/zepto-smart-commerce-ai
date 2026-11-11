@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -1182,3 +1183,100 @@ st.markdown(
     "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# DOCUMENT CHAT BOX  (floating button, bottom-right)
+#
+# The chat box itself (chatbot.js + chatbot.css) and the admin page
+# are served by the FastAPI backend, so there is nothing to copy into
+# this Streamlit app. This block only loads the script into the page
+# and keeps its dark / light theme in sync with the ◐ button.
+#
+# Optional environment variables on THIS (Streamlit) Render service:
+#   CHATBOT_ENABLED  = 0           hide the chat box
+#   CHATBOT_API_URL  = https://...  backend to use (default: FASTAPI_BASE_URL)
+#   CHATBOT_LOGO_URL = https://...  round logo image for the button
+#   CHATBOT_BOTTOM   = 96          distance from the bottom edge, in px
+# ============================================================
+
+CHATBOT_ENABLED = os.getenv("CHATBOT_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+CHATBOT_API_URL = os.getenv("CHATBOT_API_URL", API_BASE_URL).strip().rstrip("/")
+CHATBOT_LOGO_URL = os.getenv("CHATBOT_LOGO_URL", "").strip()
+CHATBOT_ASSET_VERSION = "1"   # change it to force browsers to reload chatbot.js / .css
+
+
+def _js_string(value: str) -> str:
+    """JSON-encode a value for safe use inside an inline <script>."""
+    return json.dumps(value).replace("</", "<\\/")
+
+
+def render_chatbot_widget() -> None:
+    """
+    Load the floating chat box. A problem here must never break the app,
+    so every step is wrapped.
+    """
+
+    if not CHATBOT_ENABLED or not CHATBOT_API_URL:
+        return
+
+    try:
+        bottom = int(os.getenv("CHATBOT_BOTTOM", "96"))
+    except ValueError:
+        bottom = 96
+
+    config = {
+        "api": CHATBOT_API_URL,
+        "theme": st.session_state.get("theme", "dark"),
+        "title": "Zepto Assistant",
+        "bottom": bottom,
+    }
+
+    if CHATBOT_LOGO_URL:
+        config["logo"] = CHATBOT_LOGO_URL
+
+    script_url = f"{CHATBOT_API_URL}/widget/chatbot.js?v={CHATBOT_ASSET_VERSION}"
+
+    loader_js = (
+        "(function () {"
+        "try {"
+        "var host = (window.parent && window.parent !== window) ? window.parent : window;"
+        "var doc = host.document;"
+        f"var theme = {_js_string(config['theme'])};"
+        "if (host.ZeptoChatbot && host.ZeptoChatbot.setTheme) { host.ZeptoChatbot.setTheme(theme); return; }"
+        "if (doc.getElementById('zchat-loader')) { return; }"
+        f"host.ZEPTO_CHATBOT_CONFIG = {_js_string(json.dumps(config))};"
+        "host.ZEPTO_CHATBOT_CONFIG = JSON.parse(host.ZEPTO_CHATBOT_CONFIG);"
+        "var s = doc.createElement('script');"
+        "s.id = 'zchat-loader';"
+        f"s.src = {_js_string(script_url)};"
+        "s.async = true;"
+        "s.onerror = function () { s.remove(); };"
+        "doc.body.appendChild(s);"
+        "} catch (e) { console.warn('Chat box could not be loaded', e); }"
+        "})();"
+    )
+
+    snippet = f"<script>{loader_js}</script>"
+
+    # Current Streamlit: runs the script directly in the page.
+    try:
+        st.html(snippet, unsafe_allow_javascript=True)
+        return
+    except TypeError:
+        pass          # older Streamlit without unsafe_allow_javascript
+    except Exception:
+        return
+
+    # Older Streamlit: tiny hidden iframe that reaches the parent page.
+    try:
+        import streamlit.components.v1 as components
+
+        components.html(snippet, height=0)
+    except Exception:
+        pass
+
+
+render_chatbot_widget()

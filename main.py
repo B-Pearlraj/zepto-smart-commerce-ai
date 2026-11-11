@@ -66,6 +66,12 @@ from inference import (
     production_predict_order,
 )
 
+# ----------------------------------------------------------------------
+# Document chat (RAG): chat API, admin upload API, admin page and the
+# chat box files (chatbot.js / chatbot.css). See rag_router.py
+# ----------------------------------------------------------------------
+from rag_router import setup_rag
+
 # ======================================================================
 # LOGGING CONFIGURATION
 # ======================================================================
@@ -655,6 +661,19 @@ def application_info():
             "/predict",
         ],
     }
+
+
+# ======================================================================
+# DOCUMENT CHAT (RAG)
+# ======================================================================
+# Adds, without touching any endpoint above:
+#   GET  /admin                      admin page (upload / delete documents)
+#   POST /api/chat                   chat box questions
+#   GET  /api/chat/status            chat box "online" check
+#   *    /api/admin/...              document management (needs ADMIN_TOKEN)
+#   GET  /widget/chatbot.js|css      chat box files for the Streamlit site
+# plus CORS for the Streamlit site and the document tables in Neon.
+setup_rag(app)
 
 
 # ======================================================================
