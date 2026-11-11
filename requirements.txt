@@ -14,8 +14,3 @@ requests==2.31.0
 python-dotenv
 pandas==2.2.3
 numpy==2.5.3
-
-# Document chatbot
-python-multipart
-pypdf
-python-docx
