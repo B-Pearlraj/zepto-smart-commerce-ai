@@ -9,6 +9,7 @@ Plug-in module: main.py only needs
 Public endpoints (used by the chat widget)
     POST /chatbot/chat          ask a question
     GET  /chatbot/status        is the bot ready?
+    GET  /chatbot/health        diagnostics (tables, documents, AI status)
 
 Admin endpoints (header  X-Admin-Token: <ADMIN_TOKEN>)
     GET    /chatbot/admin/verify
@@ -21,7 +22,7 @@ Admin endpoints (header  X-Admin-Token: <ADMIN_TOKEN>)
     GET    /chatbot/admin/unanswered
 
 Static files served by the API itself
-    GET /admin                       admin.html
+    GET /admin  (and /admin.html)    admin.html
     GET /chatbot/chatbot.js
     GET /chatbot/chatbot.css
 
@@ -29,7 +30,9 @@ Environment variables
     ADMIN_TOKEN          required for the admin endpoints (long random string)
     CHATBOT_CORS_ORIGINS optional, comma separated. Default "*" (the chat
                          endpoint is public and uses no cookies).
-    ANTHROPIC_API_KEY    optional, enables Claude-written answers
+    LLM_API_KEY          optional, enables AI-written answers (Groq key)
+    LLM_BASE_URL         optional, default https://api.groq.com/openai/v1
+    LLM_MODEL            optional, default llama-3.3-70b-versatile
 """
 
 import logging
@@ -136,6 +139,19 @@ def chatbot_status():
         raise HTTPException(status_code=503, detail="Database unavailable.")
 
     return {"status": "success", "ready": ready}
+
+
+@router.get("/health")
+def chatbot_health():
+    """
+    Open this URL in a browser to see whether the chatbot is installed
+    correctly. It never exposes keys or connection strings.
+    """
+
+    info = repo.get_diagnostics()
+    ready = info["database"] == "connected" and all(info["tables"].values())
+
+    return {"status": "ok" if ready else "needs_attention", **info}
 
 
 # ======================================================================
@@ -344,6 +360,7 @@ def register_chatbot(app: FastAPI) -> None:
     app.include_router(router)
 
     @app.get("/admin", include_in_schema=False)
+    @app.get("/admin.html", include_in_schema=False)
     def serve_admin_page():
         return _static_file("admin.html", "text/html")
 

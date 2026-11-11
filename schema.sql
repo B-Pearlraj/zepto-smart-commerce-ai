@@ -1,8 +1,10 @@
 -- ======================================================================
 -- Zepto Smart Commerce AI  -  Document Chatbot schema (Neon / PostgreSQL)
 --
--- Adds three NEW tables. Nothing here touches your existing tables
--- (`orders`, `prediction_audit`), so it is safe to run on production.
+-- Adds three NEW chatbot tables, plus `prediction_audit` (section 0).
+-- `prediction_audit` already exists in your code (database_schema.py) but
+-- was never created in Neon, which made /health return 503.
+-- Everything is IF NOT EXISTS, so nothing existing is changed or lost.
 --
 -- How to run (pick one):
 --   1. Neon console -> SQL Editor -> paste this whole file -> Run
@@ -11,6 +13,33 @@
 --
 -- Every statement is idempotent (IF NOT EXISTS), so re-running is safe.
 -- ======================================================================
+
+
+-- ----------------------------------------------------------------------
+-- 0. prediction_audit  (same definition as database_schema.py)
+--    Needed by /health, /predict and /predictions/recent.
+-- ----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS prediction_audit (
+    id                           BIGSERIAL PRIMARY KEY,
+    request_timestamp            TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    model_version                VARCHAR(50) NOT NULL,
+    delivery_charge              DOUBLE PRECISION NOT NULL,
+    delivery_time_minutes        DOUBLE PRECISION NOT NULL,
+    rider_acceptance_probability DOUBLE PRECISION NOT NULL,
+    rider_acceptance             SMALLINT NOT NULL CHECK (rider_acceptance IN (0, 1)),
+    weather_source               VARCHAR(100),
+    traffic_source               VARCHAR(100),
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_prediction_audit_request_timestamp
+    ON prediction_audit (request_timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_prediction_audit_model_version
+    ON prediction_audit (model_version);
+
+CREATE INDEX IF NOT EXISTS idx_prediction_audit_created_at
+    ON prediction_audit (created_at DESC);
 
 
 -- ----------------------------------------------------------------------

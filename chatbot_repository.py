@@ -13,9 +13,10 @@ How a question is answered
 3. Chunks that match too few of the question's terms are discarded.
 4. The reply is built only from what is left:
      - default:  the most relevant sentences, quoted from the documents
-     - optional: if ANTHROPIC_API_KEY is set, Claude writes a short
-                 answer grounded ONLY in those chunks. If anything goes
-                 wrong it silently falls back to the default.
+     - optional: if LLM_API_KEY is set (Groq / any OpenAI-compatible
+                 provider), the AI writes a short answer grounded ONLY
+                 in those chunks. If anything goes wrong it silently
+                 falls back to the default.
 5. If nothing relevant is found, the bot says so instead of guessing.
 """
 
@@ -644,69 +645,238 @@ def build_extractive_answer(question: str, chunks: List[Dict[str, Any]]) -> str:
     return " ".join(item[3] for item in best)
 
 
+# ----------------------------------------------------------------------
+# Optional AI answers (Groq or any OpenAI-compatible provider)
+#
+#   LLM_API_KEY    your key (Groq: gsk_...)
+#   LLM_BASE_URL   e.g. https://api.groq.com/openai/v1   (default: Groq)
+#   LLM_MODEL      optional. If unset, a Groq Llama model is used and, if
+#                  that model has been retired, one is picked automatically
+#                  from the provider's /models list.
+#   CHATBOT_USE_LLM=0  turns AI answers off (document quotes only)
+# ----------------------------------------------------------------------
+
+LLM_DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+LLM_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+# Models that cannot answer chat questions.
+_NON_CHAT_MODEL_WORDS = (
+    "whisper", "tts", "guard", "embed", "orpheus", "playai",
+    "safeguard", "transcribe", "vision-preview",
+)
+
+_resolved_model: Optional[str] = None
+_last_llm_error: Optional[str] = None
+
+
 def _llm_enabled() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip()) and (
+    return bool(os.getenv("LLM_API_KEY", "").strip()) and (
         os.getenv("CHATBOT_USE_LLM", "1").strip() != "0"
     )
 
 
-def build_llm_answer(question: str, chunks: List[Dict[str, Any]]) -> Optional[str]:
-    """
-    Optional: let Claude phrase a short answer using ONLY the retrieved
-    excerpts. Returns None when it cannot answer or anything fails, in
-    which case the caller falls back to the extractive answer.
-    """
+def _llm_base_url() -> str:
+    base = os.getenv("LLM_BASE_URL", "").strip().rstrip("/")
+
+    if not base:
+        return LLM_DEFAULT_BASE_URL
+
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")]
+
+    # Someone pasted just "https://api.groq.com"
+    if re.fullmatch(r"https?://api\.groq\.com", base):
+        base += "/openai/v1"
+
+    return base
+
+
+def _llm_headers() -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {os.getenv('LLM_API_KEY', '').strip()}",
+        "Content-Type": "application/json",
+    }
+
+
+def _llm_model() -> str:
+    return (
+        os.getenv("LLM_MODEL", "").strip()
+        or _resolved_model
+        or LLM_DEFAULT_MODEL
+    )
+
+
+def _discover_model() -> Optional[str]:
+    """Ask the provider which chat models exist right now."""
 
     import requests
 
+    try:
+        response = requests.get(
+            f"{_llm_base_url()}/models",
+            headers=_llm_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        ids = [
+            item.get("id", "")
+            for item in response.json().get("data", [])
+            if item.get("active", True)
+        ]
+
+    except Exception as exc:
+        logger.warning("Could not list LLM models: %s", exc)
+        return None
+
+    ids = [
+        model_id
+        for model_id in ids
+        if model_id and not any(word in model_id.lower() for word in _NON_CHAT_MODEL_WORDS)
+    ]
+
+    for preferred in ("llama-3.3-70b", "llama-3.1-8b-instant", "llama"):
+        for model_id in ids:
+            if preferred in model_id.lower():
+                return model_id
+
+    return ids[0] if ids else None
+
+
+def build_llm_answer(question: str, chunks: List[Dict[str, Any]]) -> Optional[str]:
+    """
+    Let the AI phrase a short answer using ONLY the retrieved excerpts.
+    Returns None if it cannot answer or anything fails (the caller then
+    falls back to quoting the document). Returns "NOT_FOUND" when the
+    excerpts do not contain the answer.
+    """
+
+    global _resolved_model, _last_llm_error
+
+    import requests
+    import time
+
     excerpts = "\n\n".join(
         f"[{index + 1}] ({chunk['title']})\n{chunk['content']}"
-        for index, chunk in enumerate(chunks[:CHUNKS_USED_FOR_ANSWER])
+        for index, chunk in enumerate(chunks[:4])
     )
 
     system_prompt = (
         "You answer questions for website visitors using ONLY the document "
-        "excerpts provided. Be concise (under 120 words) and friendly. "
-        "Never use outside knowledge. If the excerpts do not contain the "
-        "answer, reply with exactly: NOT_FOUND"
+        "excerpts provided. Be concise (under 120 words), friendly and "
+        "accurate. Write plain text only: no markdown, no asterisks. "
+        "Never use outside knowledge and never guess. If the excerpts do "
+        "not contain the answer, reply with exactly: NOT_FOUND"
     )
 
+    user_prompt = f"Document excerpts:\n{excerpts}\n\nQuestion: {question}"
+
+    model = _llm_model()
+    model_was_switched = False
+
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                f"{_llm_base_url()}/chat/completions",
+                headers=_llm_headers(),
+                json={
+                    "model": model,
+                    "temperature": 0.2,
+                    "max_tokens": 400,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+                timeout=25,
+            )
+
+            # Rate limited: wait a moment and try again.
+            if response.status_code == 429 and attempt < 2:
+                try:
+                    wait = min(float(response.headers.get("retry-after", 2)), 6.0)
+                except ValueError:
+                    wait = 2.0
+                time.sleep(wait)
+                continue
+
+            # Model retired / unknown: pick a working one once.
+            if (
+                response.status_code in (400, 404)
+                and not os.getenv("LLM_MODEL", "").strip()
+                and not model_was_switched
+            ):
+                model_was_switched = True
+                found = _discover_model()
+
+                if found and found != model:
+                    logger.warning("LLM model %s failed; switching to %s", model, found)
+                    _resolved_model = found
+                    model = found
+                    continue
+
+            if not response.ok:
+                _last_llm_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                logger.warning("Chatbot LLM request failed | %s", _last_llm_error)
+                return None
+
+            text = (
+                response.json()["choices"][0]["message"]["content"] or ""
+            ).strip()
+
+            _last_llm_error = None
+            return text or None
+
+        except Exception as exc:
+            _last_llm_error = str(exc)[:200]
+            logger.warning("Chatbot LLM answer failed, using document quote: %s", exc)
+            return None
+
+    return None
+
+
+def get_diagnostics() -> Dict[str, Any]:
+    """
+    Safe status for /chatbot/health. Never includes keys or connection
+    strings.
+    """
+
+    info: Dict[str, Any] = {
+        "llm_configured": _llm_enabled(),
+        "llm_model": _llm_model() if _llm_enabled() else None,
+        "llm_endpoint": _llm_base_url() if _llm_enabled() else None,
+        "llm_last_error": _last_llm_error,
+        "database": "unknown",
+        "tables": {},
+        "documents": None,
+        "active_documents": None,
+    }
+
+    names = ("chatbot_documents", "chatbot_chunks", "chatbot_messages")
+
     try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": os.getenv("ANTHROPIC_API_KEY", "").strip(),
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": os.getenv("CHATBOT_LLM_MODEL", "claude-haiku-5-5"),
-                "max_tokens": 400,
-                "system": system_prompt,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Document excerpts:\n{excerpts}\n\n"
-                            f"Question: {question}"
-                        ),
-                    }
-                ],
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
+        with database_connection() as connection:
+            with connection.cursor() as cursor:
+                for name in names:
+                    cursor.execute("SELECT to_regclass(%s) IS NOT NULL;", (f"public.{name}",))
+                    info["tables"][name] = bool(cursor.fetchone()[0])
 
-        blocks = response.json().get("content", [])
-        text = "".join(
-            block.get("text", "") for block in blocks if block.get("type") == "text"
-        ).strip()
+                if all(info["tables"].values()):
+                    cursor.execute(
+                        "SELECT COUNT(*), COUNT(*) FILTER (WHERE is_active) "
+                        "FROM chatbot_documents;"
+                    )
+                    row = cursor.fetchone()
+                    info["documents"] = int(row[0])
+                    info["active_documents"] = int(row[1])
 
-        return text or None
+        info["database"] = "connected"
 
     except Exception as exc:
-        logger.warning("Chatbot LLM answer failed, using extractive: %s", exc)
-        return None
+        logger.warning("Chatbot diagnostics database check failed: %s", exc)
+        info["database"] = "unreachable"
+
+    return info
 
 
 # ======================================================================
@@ -794,9 +964,13 @@ def answer_question(question: str, session_id: Optional[str] = None) -> Dict[str
         return {"answer": NOT_FOUND_MESSAGE, "matched": False, "sources": []}
 
     answer: Optional[str] = None
+    engine = "document"
 
     if _llm_enabled():
         answer = build_llm_answer(question, chunks)
+
+        if answer:
+            engine = "ai"
 
         if answer and answer.strip().upper().startswith("NOT_FOUND"):
             _log_message(session_id, question, NOT_FOUND_MESSAGE, False, None)
@@ -817,4 +991,9 @@ def answer_question(question: str, session_id: Optional[str] = None) -> Dict[str
 
     _log_message(session_id, question, answer, True, chunks[0]["document_id"])
 
-    return {"answer": answer, "matched": True, "sources": sources}
+    return {
+        "answer": answer,
+        "matched": True,
+        "sources": sources,
+        "engine": engine,
+    }

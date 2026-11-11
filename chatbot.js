@@ -457,7 +457,7 @@
 
         clearTimeout(timer);
 
-        if ([502, 503, 504].indexOf(response.status) !== -1 && attempt < attempts) {
+        if ([429, 502, 503, 504].indexOf(response.status) !== -1 && attempt < attempts) {
           onWaking();
           await sleep(4000);
           continue;
@@ -469,6 +469,18 @@
           data = await response.json();
         } catch (e) {
           data = null;
+        }
+
+        if (response.status === 404) {
+          throw new Error(
+            "The document assistant isn't installed on the server yet. Please try again later."
+          );
+        }
+
+        if (response.status === 429) {
+          throw new Error(
+            "The server is busy right now. Please try again in a moment."
+          );
         }
 
         if (!response.ok) {

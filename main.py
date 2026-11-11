@@ -88,10 +88,20 @@ app = FastAPI(
 
 # ======================================================================
 # DOCUMENT CHATBOT  (admin page, /chatbot routes, CORS, table setup)
+# Wrapped so a problem inside the chatbot can never stop the main API
+# (order lookup / predictions) from starting. Check the Render logs for
+# "Chatbot module NOT loaded" if /chatbot/health is missing.
 # ======================================================================
-from chatbot_api import register_chatbot
+try:
+    from chatbot_api import register_chatbot
 
-register_chatbot(app)
+    register_chatbot(app)
+
+except Exception as chatbot_exc:  # noqa: BLE001
+    logging.getLogger("zepto_fastapi").exception(
+        "Chatbot module NOT loaded: %s",
+        chatbot_exc,
+    )
 
 
 # ======================================================================
@@ -117,6 +127,28 @@ def setup_orders_table():
     except Exception as exc:
         logger.exception(
             "Orders table setup failed: %s",
+            str(exc),
+        )
+
+# ======================================================================
+# STARTUP: ENSURE prediction_audit TABLE EXISTS
+# /health, /predict and /predictions/recent all use this table. It was
+# only created by running database_schema.py by hand, so a fresh Neon
+# database made /health return 503. initialize_database() is idempotent.
+# ======================================================================
+@app.on_event("startup")
+def setup_prediction_audit_table():
+
+    try:
+        from database_schema import initialize_database
+
+        initialize_database()
+
+        logger.info("prediction_audit table ready")
+
+    except Exception as exc:
+        logger.exception(
+            "prediction_audit table setup failed: %s",
             str(exc),
         )
 

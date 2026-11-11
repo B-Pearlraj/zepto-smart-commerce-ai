@@ -874,8 +874,11 @@
       box.textContent = data.answer;
 
       var note = document.createElement("small");
+      var engineText = data.engine === "ai"
+        ? " - written by the AI model"
+        : (data.engine === "document" ? " - quoted from the document (AI not used)" : "");
       note.textContent = data.sources && data.sources.length
-        ? "Source: " + data.sources.map(function (s) { return s.title; }).join(", ")
+        ? "Source: " + data.sources.map(function (s) { return s.title; }).join(", ") + engineText
         : (data.matched ? "" : "No matching document.");
       box.appendChild(note);
       box.className = "answer-box show";
