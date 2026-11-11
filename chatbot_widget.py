@@ -1,146 +1,135 @@
 """
-Floating document-chatbot widget for the Streamlit app.
+Floating document chatbot for the Streamlit UI.
 
-Streamlit renders components inside an iframe, so a "fixed" button
-placed there would not float over the page. This helper runs a tiny
-script inside that iframe which copies chatbot.css and chatbot.js into
-the PARENT page, so the round avatar button floats at the bottom-right
-of the whole app (same as on a normal website).
+Streamlit cannot run JavaScript from st.markdown, so this helper uses a
+zero-height st.components.v1.html frame. Its script copies chatbot.css and
+chatbot.js into the MAIN page (window.parent), where the widget floats at
+the bottom-right corner above the Streamlit app.
 
-Usage in app.py (one line, after st.set_page_config):
-
-    from chatbot_widget import render_document_chatbot
-    render_document_chatbot(API_BASE_URL)
-
-chatbot.css and chatbot.js are read from the same folder as this file.
-If they are missing there, the widget falls back to loading them from
-the API server (<API_BASE_URL>/chatbot/chatbot.js).
+Files read from the same folder as this module:
+    chatbot.css
+    chatbot.js
+    chatbot-avatar.png   (optional - falls back to Logo-PTS.png)
 """
 
+import base64
 import json
 from pathlib import Path
-from typing import List, Optional
 
+import streamlit as st
 import streamlit.components.v1 as components
 
-_APP_DIR = Path(__file__).resolve().parent
+
+BASE_DIR = Path(__file__).resolve().parent
+
+AVATAR_CANDIDATES = ("chatbot-avatar.png", "Logo-PTS.png")
 
 
-def _read_asset(name: str) -> Optional[str]:
-    path = _APP_DIR / name
+@st.cache_resource
+def _load_assets() -> dict:
+    """Read the widget files once per server process."""
 
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
+    css_path = BASE_DIR / "chatbot.css"
+    js_path = BASE_DIR / "chatbot.js"
+
+    css = css_path.read_text(encoding="utf-8") if css_path.exists() else ""
+    js = js_path.read_text(encoding="utf-8") if js_path.exists() else ""
+
+    avatar_uri = ""
+
+    for name in AVATAR_CANDIDATES:
+        candidate = BASE_DIR / name
+
+        if candidate.exists():
+            encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
+            avatar_uri = f"data:image/png;base64,{encoded}"
+            break
+
+    return {"css": css, "js": js, "avatar": avatar_uri}
 
 
-def _js_safe(value) -> str:
-    """JSON for embedding inside a <script> block."""
+def _js_string(value: str) -> str:
+    """JSON-encode a string so it is safe inside an inline <script>."""
+
     return json.dumps(value).replace("</", "<\\/")
 
 
-def render_document_chatbot(
+def inject_chatbot(
     api_base_url: str,
-    *,
-    title: str = "Document Assistant",
-    subtitle: str = "Online - ask me about our documents",
-    greeting: Optional[str] = None,
-    suggestions: Optional[List[str]] = None,
-    avatar_url: Optional[str] = None,
-    theme: str = "light",
-    offset_bottom: int = 96,
-    offset_side: int = 24,
+    theme: str = "dark",
+    title: str = "Zepto Assistant",
+    subtitle: str = "Ask me about our documents",
+    bottom_offset: int = 88,
+    right_offset: int = 24,
 ) -> None:
     """
-    Add the floating chat widget to the current Streamlit page.
+    Add the floating chat widget to the page.
 
-    offset_bottom defaults to 96 px so the button sits above
-    Streamlit's chat input bar instead of covering its send button.
+    Safe to call on every Streamlit rerun: the widget is created once and
+    only its settings (e.g. light/dark theme) are updated afterwards, so an
+    open conversation is never lost.
+
+    bottom_offset keeps the round button above Streamlit's chat input box.
     """
+
+    assets = _load_assets()
+
+    if not assets["js"] or not assets["css"]:
+        st.warning(
+            "Chatbot files (chatbot.js / chatbot.css) were not found next "
+            "to app.py, so the chat widget is disabled."
+        )
+        return
 
     config = {
         "apiBase": api_base_url.rstrip("/"),
+        "theme": "light" if theme == "light" else "dark",
+        "avatarUrl": assets["avatar"],
         "title": title,
         "subtitle": subtitle,
-        "theme": theme,
-        "offsetBottom": offset_bottom,
-        "offsetSide": offset_side,
-        "loadCss": False,   # this helper injects the CSS itself
+        "bottomOffset": bottom_offset,
+        "rightOffset": right_offset,
     }
 
-    if greeting:
-        config["greeting"] = greeting
-
-    if suggestions:
-        config["suggestions"] = suggestions
-
-    if avatar_url:
-        config["avatarUrl"] = avatar_url
-
-    css = _read_asset("chatbot.css")
-    js = _read_asset("chatbot.js")
-
-    remote_css = f"{config['apiBase']}/chatbot/chatbot.css"
-    remote_js = f"{config['apiBase']}/chatbot/chatbot.js"
+    config_js = json.dumps(config).replace("</", "<\\/")
 
     html = f"""
-    <script>
-    (function () {{
-      var host;
+<script>
+(function () {{
+  try {{
+    var p = window.parent;
+    var d = p.document;
 
-      try {{
-        host = window.parent;
-        void host.document.body;            // throws if the parent is cross-origin
-      }} catch (e) {{
-        return;
-      }}
+    if (!d.getElementById("zc-style")) {{
+      var style = d.createElement("style");
+      style.id = "zc-style";
+      style.textContent = {_js_string(assets["css"])};
+      d.head.appendChild(style);
+    }}
 
-      var doc = host.document;
+    p.__ZC_CONFIG__ = {config_js};
 
-      // Already installed by an earlier Streamlit rerun: nothing to do.
-      // Only the theme may have changed (dark / light toggle): apply it.
-      if (host.__zeptoChatbotLoaded) {{
-        var existing = doc.querySelector(".zbot-root");
-        if (existing) {{
-          existing.setAttribute("data-theme", {_js_safe(theme)});
-        }}
-        return;
-      }}
+    if (!d.getElementById("zc-script")) {{
+      var script = d.createElement("script");
+      script.id = "zc-script";
+      script.textContent = {_js_string(assets["js"])};
+      d.body.appendChild(script);
+    }} else if (p.ZeptoChatbot) {{
+      p.ZeptoChatbot.init(p.__ZC_CONFIG__);
+    }}
 
-      host.ZEPTO_CHATBOT_CONFIG = {_js_safe(config)};
-
-      var localCss = {_js_safe(css)};
-      var localJs = {_js_safe(js)};
-
-      // ---- stylesheet
-      if (!doc.getElementById("zbot-css")) {{
-        if (localCss) {{
-          var style = doc.createElement("style");
-          style.id = "zbot-css";
-          style.textContent = localCss;
-          doc.head.appendChild(style);
-        }} else {{
-          var link = doc.createElement("link");
-          link.id = "zbot-css";
-          link.rel = "stylesheet";
-          link.href = {_js_safe(remote_css)};
-          doc.head.appendChild(link);
-        }}
-      }}
-
-      // ---- script (runs in the parent page, so `document` is the app page)
-      var script = doc.createElement("script");
-
-      if (localJs) {{
-        script.textContent = localJs;
-      }} else {{
-        script.src = {_js_safe(remote_js)};
-      }}
-
-      doc.body.appendChild(script);
-    }})();
-    </script>
-    """
+    // Hide this empty helper frame so it takes no space on the page.
+    var frame = window.frameElement;
+    if (frame) {{
+      var holder = frame.closest('[data-testid="stElementContainer"]') ||
+                   frame.closest(".element-container") || frame;
+      holder.style.display = "none";
+    }}
+  }} catch (err) {{
+    console.warn("Chatbot widget could not start:", err);
+  }}
+}})();
+</script>
+"""
 
     components.html(html, height=0)
