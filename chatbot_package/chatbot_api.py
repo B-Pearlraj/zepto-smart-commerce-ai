@@ -149,6 +149,7 @@ def chatbot_health():
     """
 
     info = repo.get_diagnostics()
+    info["upload_enabled"] = UPLOAD_ENABLED
     ready = info["database"] == "connected" and all(info["tables"].values())
 
     return {"status": "ok" if ready else "needs_attention", **info}
@@ -175,44 +176,59 @@ def admin_list_documents(x_admin_token: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/admin/documents", status_code=201)
-async def admin_upload_document(
-    file: UploadFile = File(...),
-    title: Optional[str] = Form(default=None),
-    x_admin_token: Optional[str] = Header(default=None),
-):
-    require_admin(x_admin_token)
+# File upload needs the "python-multipart" package. If it is missing,
+# FastAPI raises while this route is being defined; that must not take
+# the whole chatbot down, so the route is simply switched off (the
+# "Paste text" tab in the admin page keeps working).
+UPLOAD_ENABLED = True
 
-    # Read at most one byte over the limit so huge uploads are rejected
-    # without loading them fully into memory.
-    data = await file.read(repo.MAX_UPLOAD_BYTES + 1)
-    filename = file.filename or "document"
+try:
+    @router.post("/admin/documents", status_code=201)
+    async def admin_upload_document(
+        file: UploadFile = File(...),
+        title: Optional[str] = Form(default=None),
+        x_admin_token: Optional[str] = Header(default=None),
+    ):
+        require_admin(x_admin_token)
 
-    try:
-        text = repo.extract_text(filename, data)
+        # Read at most one byte over the limit so huge uploads are rejected
+        # without loading them fully into memory.
+        data = await file.read(repo.MAX_UPLOAD_BYTES + 1)
+        filename = file.filename or "document"
 
-        document = repo.add_document(
-            title=(title or "").strip() or Path(filename).stem,
-            text=text,
-            filename=filename,
-            content_type=file.content_type,
-            file_size_bytes=len(data),
+        try:
+            text = repo.extract_text(filename, data)
+
+            document = repo.add_document(
+                title=(title or "").strip() or Path(filename).stem,
+                text=text,
+                filename=filename,
+                content_type=file.content_type,
+                file_size_bytes=len(data),
+            )
+
+        except repo.DocumentError as exc:
+            raise _document_http_error(exc)
+
+        except Exception as exc:
+            logger.exception("Document upload failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc))
+
+        logger.info(
+            "Chatbot document added | id=%s | chunks=%s",
+            document["id"],
+            document["chunk_count"],
         )
 
-    except repo.DocumentError as exc:
-        raise _document_http_error(exc)
+        return {"status": "success", "document": document}
 
-    except Exception as exc:
-        logger.exception("Document upload failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    logger.info(
-        "Chatbot document added | id=%s | chunks=%s",
-        document["id"],
-        document["chunk_count"],
+except RuntimeError as exc:
+    UPLOAD_ENABLED = False
+    logger.warning(
+        "Chatbot file upload disabled (%s). "
+        "Add 'python-multipart' to requirements.txt and redeploy.",
+        exc,
     )
-
-    return {"status": "success", "document": document}
 
 
 @router.post("/admin/documents/text", status_code=201)
