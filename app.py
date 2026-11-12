@@ -1182,3 +1182,39 @@ st.markdown(
     "<div style='text-align:center;'>Created by <b>Pearlraj</b></div>",
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# DOCUMENT KNOWLEDGE ASSISTANT (separate from order prediction chat)
+# ============================================================
+st.divider()
+with st.expander("📚 Ask the Document AI Assistant", expanded=False):
+    st.caption("Answers are grounded in documents uploaded by the administrator.")
+    if "document_chat_history" not in st.session_state:
+        st.session_state.document_chat_history = []
+    for item in st.session_state.document_chat_history:
+        with st.chat_message(item["role"]):
+            st.markdown(item["content"])
+    with st.form("document_assistant_form", clear_on_submit=True):
+        doc_question = st.text_input("Your document question", max_chars=2000)
+        doc_send = st.form_submit_button("Ask Document AI")
+    if doc_send and doc_question.strip():
+        try:
+            result = requests.post(
+                f"{API_BASE_URL.rstrip('/')}/rag/chat",
+                json={"question": doc_question, "history": st.session_state.document_chat_history[-6:]},
+                timeout=(10, 90),
+            )
+            result.raise_for_status()
+            data = result.json()
+            answer_text = data.get("answer", "No answer returned.")
+            sources = sorted({x.get("filename", "") for x in data.get("sources", []) if x.get("filename")})
+            if sources:
+                answer_text += "\n\n**Sources:** " + ", ".join(sources)
+            st.session_state.document_chat_history.extend([
+                {"role": "user", "content": doc_question},
+                {"role": "assistant", "content": answer_text},
+            ])
+            st.rerun()
+        except requests.RequestException:
+            st.error("Document assistant is unavailable. Verify the FastAPI service and uploaded documents.")

@@ -663,3 +663,8 @@ def application_info():
 # This file keeps the existing API behavior intact and adds PostgreSQL
 # audit logging only after a successful prediction has been generated
 # and validated.
+
+
+# Document AI Assistant (additive routes; existing ML endpoints unchanged)
+from chatbot_routes import router as chatbot_router
+app.include_router(chatbot_router)
