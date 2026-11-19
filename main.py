@@ -289,6 +289,64 @@ def get_order(order_id: str):
 
 
 # ======================================================================
+# ORDER LIVE CONDITIONS ENDPOINT (weather + traffic)
+# ======================================================================
+@app.get("/orders/{order_id}/conditions")
+def get_order_conditions(order_id: str):
+    """
+    Live weather and traffic at an order's delivery location.
+
+    Used by the UI to show weather & traffic for every order as soon as
+    it is looked up (before the prediction is confirmed). Weather and
+    traffic failures are reported per-provider instead of failing the
+    whole request.
+    """
+
+    try:
+        order = get_order_by_id(order_id)
+    except Exception as exc:
+        logger.exception("Conditions lookup failed | order_id=%s", order_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No order found with ID '{order_id}'.",
+        )
+
+    lat = order.get("customer_lat")
+    lon = order.get("customer_lon")
+
+    if lat is None or lon is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Order has no customer coordinates.",
+        )
+
+    weather, traffic, errors = None, None, {}
+
+    try:
+        weather = get_weather(latitude=float(lat), longitude=float(lon))
+    except Exception as exc:
+        logger.exception("Weather lookup failed | order_id=%s", order_id)
+        errors["weather"] = str(exc)
+
+    try:
+        traffic = get_traffic(latitude=float(lat), longitude=float(lon))
+    except Exception as exc:
+        logger.exception("Traffic lookup failed | order_id=%s", order_id)
+        errors["traffic"] = str(exc)
+
+    return {
+        "status": "success",
+        "order_id": order_id,
+        "weather": weather,
+        "traffic": traffic,
+        "errors": errors,
+    }
+
+
+# ======================================================================
 # PREDICTION ENDPOINT
 # ======================================================================
 @app.post(
@@ -653,6 +711,8 @@ def application_info():
             "/health",
             "/info",
             "/predict",
+            "/orders/{order_id}",
+            "/orders/{order_id}/conditions",
         ],
     }
 
