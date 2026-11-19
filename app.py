@@ -90,6 +90,16 @@ def fetch_conditions(order_id: str) -> dict:
             "traffic": data.get("traffic") or {},
             "errors": data.get("errors") or {},
         }
+    except requests.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else None
+        if code == 404:
+            reason = (
+                "backend has no /orders/{id}/conditions endpoint yet "
+                "(redeploy main.py)"
+            )
+        else:
+            reason = f"backend returned HTTP {code}"
+        return {"weather": {}, "traffic": {}, "errors": {"request": reason}}
     except Exception as exc:
         return {"weather": {}, "traffic": {}, "errors": {"request": str(exc)}}
 
@@ -877,63 +887,110 @@ def _num(value, fmt: str, suffix: str = "") -> str:
         return "N/A"
 
 
+def _weather_icon(weather: dict) -> str:
+    text = (
+        f"{weather.get('weather_condition', '')} {weather.get('description', '')}"
+    ).lower()
+    if "thunder" in text or "storm" in text:
+        return "⛈️"
+    if "drizzle" in text:
+        return "🌦️"
+    if "rain" in text or "shower" in text:
+        return "🌧️"
+    if "snow" in text:
+        return "❄️"
+    if any(w in text for w in ("mist", "fog", "haze", "smoke", "dust")):
+        return "🌫️"
+    if "few clouds" in text or "scattered" in text or "partly" in text:
+        return "⛅"
+    if "cloud" in text or "overcast" in text:
+        return "☁️"
+    return "☀️"
+
+
+def _traffic_icon(level: str) -> str:
+    level = level.lower()
+    if level in ("high", "heavy", "severe", "very high"):
+        return "🔴"
+    if level in ("medium", "moderate"):
+        return "🟡"
+    if level in ("low", "light", "free"):
+        return "🟢"
+    return "🚦"
+
+
+def _chip(icon: str, big: str, small: str, extra: str = "") -> str:
+    return (
+        '<div style="display:flex;align-items:center;gap:12px;'
+        "background:var(--surface-alt);border:1px solid var(--border);"
+        'border-radius:14px;padding:10px 16px;">'
+        f'<div style="font-size:34px;line-height:1;">{icon}</div>'
+        "<div>"
+        f'<div style="font-size:20px;font-weight:800;color:var(--ink);">{big}</div>'
+        f'<div style="font-size:13px;color:var(--muted);">{small}</div>'
+        + (
+            f'<div style="font-size:11.5px;color:var(--faint);margin-top:2px;">{extra}</div>'
+            if extra
+            else ""
+        )
+        + "</div></div>"
+    )
+
+
 def render_conditions(weather: dict, traffic: dict, errors: dict | None = None):
-    """Weather + traffic cards, shown for every order."""
+    """Compact current weather + traffic chips, shown for every order."""
 
     if not weather and not traffic:
-        st.caption("🌤️ Live weather & 🚦 traffic are not available right now.")
+        reason = ""
+        if errors:
+            reason = " (" + "; ".join(str(v) for v in errors.values()) + ")"
+        st.caption(f"🌤️ Live weather & 🚦 traffic are not available right now{reason}.")
         return
 
-    where = weather.get("location_name")
-    st.markdown(
-        "**🌤️ Weather" + (f" — {where}" if where else "") + "**"
-    )
+    wc, tc = st.columns(2)
 
-    w1, w2, w3, w4 = st.columns(4)
-    w1.markdown(
-        _card("🌥️ Condition", display_text(weather.get("description")).title(), 15),
-        unsafe_allow_html=True,
-    )
-    w2.markdown(
-        _card("🌡️ Temperature", _num(weather.get("temperature_c"), ".1f", " °C")),
-        unsafe_allow_html=True,
-    )
-    w3.markdown(
-        _card("💧 Humidity", _num(weather.get("humidity_percent"), ".0f", "%")),
-        unsafe_allow_html=True,
-    )
-    w4.markdown(
-        _card("🌧️ Rainfall", _num(weather.get("rainfall_mm"), ".1f", " mm")),
-        unsafe_allow_html=True,
-    )
+    with wc:
+        if weather:
+            temp = weather.get("temperature_c")
+            big = _num(temp, ".0f", "°C")
+            desc = display_text(weather.get("description")).title()
+            bits = []
+            if weather.get("feels_like_c") is not None:
+                bits.append(f"Feels {_num(weather.get('feels_like_c'), '.0f', '°')}")
+            if weather.get("humidity_percent") is not None:
+                bits.append(f"💧 {_num(weather.get('humidity_percent'), '.0f', '%')}")
+            bits.append(f"🌧️ {_num(weather.get('rainfall_mm'), '.1f', ' mm')}")
+            place = weather.get("location_name")
+            if place:
+                bits.insert(0, f"📍 {place}")
+            st.markdown(
+                _chip(_weather_icon(weather), big, desc, "  •  ".join(bits)),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("🌤️ Weather unavailable right now.")
 
-    st.markdown("**🚦 Traffic**")
-
-    level = str(traffic.get("traffic_level") or "N/A")
-    t1, t2, t3 = st.columns(3)
-    t1.markdown(_card("🚦 Traffic Level", level.title()), unsafe_allow_html=True)
-    t2.markdown(
-        _card("📊 Traffic Index", _num(traffic.get("traffic_index"), ".1f")),
-        unsafe_allow_html=True,
-    )
-    t3.markdown(
-        _card(
-            "🚗 Current / Free-flow Speed",
-            f"{_num(traffic.get('current_speed_kmh'), '.0f')} / "
-            f"{_num(traffic.get('free_flow_speed_kmh'), '.0f')} km/h",
-            16,
-        ),
-        unsafe_allow_html=True,
-    )
-
-    if weather.get("has_rain") or level.lower() in ("high", "heavy", "severe"):
-        st.markdown(
-            '<span class="pill pill-warn">⚠️ Rain / heavy traffic may slow delivery</span>',
-            unsafe_allow_html=True,
-        )
+    with tc:
+        if traffic:
+            level = str(traffic.get("traffic_level") or "N/A")
+            speed = (
+                f"{_num(traffic.get('current_speed_kmh'), '.0f')} km/h "
+                f"(free-flow {_num(traffic.get('free_flow_speed_kmh'), '.0f')})"
+            )
+            st.markdown(
+                _chip(
+                    _traffic_icon(level),
+                    f"{level.title()} traffic",
+                    speed,
+                    f"Index {_num(traffic.get('traffic_index'), '.1f')}",
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("🚦 Traffic unavailable right now.")
 
     if errors:
-        st.caption("Some live data used a fallback: " + "; ".join(errors.values()))
+        st.caption("Fallback used for: " + "; ".join(errors.keys()))
 
 
 def render_order_found(content: dict):
