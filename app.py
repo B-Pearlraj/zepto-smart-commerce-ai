@@ -72,36 +72,106 @@ def start_keepalive(base_url: str) -> bool:
 start_keepalive(API_BASE_URL)
 
 
-def fetch_conditions(order_id: str) -> dict:
-    """
-    Live weather + traffic for one order (GET /orders/{id}/conditions).
-    Never raises: on any failure returns empty weather/traffic so the
-    order card still renders.
-    """
+# ------------------------------------------------------------
+# RETRY LAYER
+#
+# Render answers 429 / 502 / 503 / 504 (or drops the connection) while
+# the backend is waking up or briefly overloaded. Instead of showing
+# an error straight away, every backend call is retried with a growing
+# delay (and honours Retry-After) for up to `max_wait` seconds.
+# ------------------------------------------------------------
+
+RETRY_STATUS = {429, 502, 503, 504}
+
+
+def call_with_retry(fn, *args, max_wait: float = 75, **kwargs):
+    deadline = time.time() + max_wait
+    delay = 2.0
+
+    while True:
+        try:
+            return fn(*args, **kwargs)
+
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code not in RETRY_STATUS:
+                raise
+            err = exc
+            retry_after = (exc.response.headers or {}).get("Retry-After", "")
+            if retry_after.isdigit():
+                delay = max(delay, min(float(retry_after), 15))
+
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            err = exc
+
+        if time.time() + delay > deadline:
+            raise err
+
+        time.sleep(delay)
+        delay = min(delay * 1.5, 10)
+
+
+def ping_backend() -> dict:
+    """One quick /health check, classified into a UI state."""
     try:
-        resp = requests.get(
+        resp = requests.get(API_BASE_URL.rstrip("/") + "/health", timeout=15)
+    except (requests.ConnectionError, requests.Timeout):
+        return {"state": "waking", "detail": "no response yet"}
+    except Exception as exc:
+        return {"state": "unavailable", "detail": str(exc)}
+
+    if resp.status_code == 200:
+        return {"state": "online", "detail": ""}
+    if resp.status_code in RETRY_STATUS:
+        return {"state": "waking", "detail": f"HTTP {resp.status_code}"}
+    return {"state": "degraded", "detail": f"HTTP {resp.status_code}"}
+
+
+def fetch_conditions(order_id: str, payload: dict | None = None) -> dict:
+    """
+    Live weather + traffic for one order. Never raises.
+
+    1) Preferred: GET /orders/{id}/conditions  (new backend endpoint).
+    2) Fallback (endpoint missing / failing): the backend's /predict
+       already returns the live weather & traffic it used, so call it
+       with the order's payload and read those two blocks. This works
+       with the backend that is deployed today.
+    """
+
+    def _get():
+        r = requests.get(
             f"{API_BASE_URL.rstrip('/')}/orders/{order_id}/conditions",
             timeout=25,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "weather": data.get("weather") or {},
-            "traffic": data.get("traffic") or {},
-            "errors": data.get("errors") or {},
-        }
-    except requests.HTTPError as exc:
-        code = exc.response.status_code if exc.response is not None else None
-        if code == 404:
-            reason = (
-                "backend has no /orders/{id}/conditions endpoint yet "
-                "(redeploy main.py)"
-            )
-        else:
-            reason = f"backend returned HTTP {code}"
-        return {"weather": {}, "traffic": {}, "errors": {"request": reason}}
+        r.raise_for_status()
+        return r.json()
+
+    try:
+        data = call_with_retry(_get, max_wait=30)
+        weather = data.get("weather") or {}
+        traffic = data.get("traffic") or {}
+        if weather or traffic:
+            return {
+                "weather": weather,
+                "traffic": traffic,
+                "errors": data.get("errors") or {},
+            }
+        first_error = "conditions endpoint returned no data"
     except Exception as exc:
-        return {"weather": {}, "traffic": {}, "errors": {"request": str(exc)}}
+        first_error = str(exc)
+
+    if payload:
+        try:
+            result = call_with_retry(api.predict, payload, max_wait=45)
+            weather = result.get("weather") or {}
+            traffic = result.get("traffic") or {}
+            if weather or traffic:
+                return {"weather": weather, "traffic": traffic, "errors": {}}
+            first_error += "; predict returned no weather/traffic"
+        except Exception as exc:
+            first_error += f"; fallback failed: {exc}"
+
+    return {"weather": {}, "traffic": {}, "errors": {"request": first_error}}
 
 
 # ------------------------------------------------------------
@@ -132,7 +202,7 @@ def get_service_status(force: bool = False) -> dict:
         if age < ttl:
             return cached
 
-    status = api.ping()
+    status = ping_backend()
     status["checked_at"] = time.time()
     st.session_state.service_status = status
 
@@ -606,13 +676,15 @@ def auto_connect():
 
     with st.spinner("🔌 Connecting to the backend (it may be waking up)…"):
         deadline = time.time() + AUTO_CONNECT_MAX_WAIT
+        wait = 3.0
         while True:
             status = get_service_status(force=True)
             if status["state"] in ("online", "degraded"):
                 break
             if time.time() > deadline:
                 break
-            time.sleep(3)
+            time.sleep(wait)
+            wait = min(wait * 1.4, 10)
 
     st.session_state.backend_connected = True
 
@@ -707,7 +779,7 @@ def lookup_order(order_id_text: str) -> dict:
         return {"type": "error", "message": "Please enter an order ID."}
 
     try:
-        order = api.get_order(order_id)
+        order = call_with_retry(api.get_order, order_id)
 
     except requests.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else None
@@ -762,7 +834,7 @@ def lookup_order(order_id_text: str) -> dict:
     order_record = {
         "info": order,
         "payload": payload,
-        "conditions": fetch_conditions(order_id),
+        "conditions": fetch_conditions(order_id, payload),
     }
 
     st.session_state.pending_order = order_record
@@ -796,7 +868,7 @@ def run_prediction_for_pending_order() -> dict:
     payload = order_record["payload"]
 
     try:
-        result = api.predict(payload)
+        result = call_with_retry(api.predict, payload)
     except Exception as exc:
         return {"type": "error", "message": f"Prediction failed: {exc}"}
 
@@ -854,7 +926,7 @@ def handle_user_message(text: str) -> dict:
 
             if "customer_lat" in edits or "customer_lon" in edits:
                 order_record["conditions"] = fetch_conditions(
-                    order_record["info"].get("order_id", "")
+                    order_record["info"].get("order_id", ""), payload
                 )
             st.session_state.pending_order = order_record
 
@@ -1177,6 +1249,34 @@ def reset_chat():
 # SIDEBAR
 # ============================================================
 
+@st.fragment(run_every=10)
+def render_service_status():
+    """Auto-refreshing status: turns green by itself once the backend wakes."""
+
+    status = get_service_status()
+    state = status["state"]
+
+    if state == "online":
+        st.success("🟢 Service online")
+
+    elif state == "degraded":
+        st.warning(
+            "🟡 Backend is reachable, but its health check reported a "
+            "problem. Order lookup may still work."
+        )
+
+    elif state == "waking":
+        st.warning(
+            "🟡 Backend is waking up / busy. Reconnecting automatically…"
+        )
+
+    else:
+        st.error("🔴 Service unavailable — retrying automatically…")
+
+    if state != "online" and status.get("detail"):
+        st.caption(f"Details: {status['detail']}")
+
+
 with st.sidebar:
 
     st.markdown(
@@ -1233,34 +1333,7 @@ with st.sidebar:
                     f"🚦 {display_text(t.get('traffic_level')).title()}"
                 )
 
-    status = get_service_status()
-    state = status["state"]
-
-    if state == "online":
-        st.success("🟢 Service online")
-
-    elif state == "degraded":
-        st.warning(
-            "🟡 Backend is reachable, but its health check reported a "
-            "problem. Order lookup may still work."
-        )
-
-    elif state == "waking":
-        st.warning(
-            "🟡 Backend is waking up after being idle. "
-            "This can take up to a minute."
-        )
-
-    else:
-        st.error("🔴 Service unavailable — please try again shortly.")
-
-    if state != "online":
-        if status.get("detail"):
-            st.caption(f"Details: {status['detail']}")
-
-        if st.button("🔄 Check again", use_container_width=True):
-            get_service_status(force=True)
-            st.rerun()
+    render_service_status()
 
     if st.button("🗑 Clear current chat", use_container_width=True):
         reset_chat()
