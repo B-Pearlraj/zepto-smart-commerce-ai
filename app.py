@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 import time
 
 import requests
@@ -37,6 +38,60 @@ def get_api(base_url: str) -> APIClient:
 
 
 api = get_api(API_BASE_URL)
+
+
+# ------------------------------------------------------------
+# AUTO-CONNECT + KEEP-ALIVE
+#
+# Render's free tier puts the backend to sleep when idle. Visiting
+# this UI now wakes it automatically: on the first load of each
+# session we poll /health until the backend answers (up to
+# AUTO_CONNECT_MAX_WAIT seconds). A background thread also pings the
+# backend every 10 minutes so it is far less likely to go to sleep
+# while this UI is running. Nothing needs to be connected manually.
+# ------------------------------------------------------------
+
+AUTO_CONNECT_MAX_WAIT = 90
+KEEPALIVE_INTERVAL_SECONDS = 600
+
+
+@st.cache_resource
+def start_keepalive(base_url: str) -> bool:
+    def loop():
+        while True:
+            try:
+                requests.get(base_url.rstrip("/") + "/health", timeout=30)
+            except Exception:
+                pass
+            time.sleep(KEEPALIVE_INTERVAL_SECONDS)
+
+    threading.Thread(target=loop, daemon=True).start()
+    return True
+
+
+start_keepalive(API_BASE_URL)
+
+
+def fetch_conditions(order_id: str) -> dict:
+    """
+    Live weather + traffic for one order (GET /orders/{id}/conditions).
+    Never raises: on any failure returns empty weather/traffic so the
+    order card still renders.
+    """
+    try:
+        resp = requests.get(
+            f"{API_BASE_URL.rstrip('/')}/orders/{order_id}/conditions",
+            timeout=25,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "weather": data.get("weather") or {},
+            "traffic": data.get("traffic") or {},
+            "errors": data.get("errors") or {},
+        }
+    except Exception as exc:
+        return {"weather": {}, "traffic": {}, "errors": {"request": str(exc)}}
 
 
 # ------------------------------------------------------------
@@ -534,6 +589,27 @@ css = "<style>" + THEME_VARS + STATIC_CSS + "</style>"
 st.markdown(css, unsafe_allow_html=True)
 
 
+def auto_connect():
+    """Wake / connect to the backend once per browser session."""
+    if st.session_state.get("backend_connected"):
+        return
+
+    with st.spinner("🔌 Connecting to the backend (it may be waking up)…"):
+        deadline = time.time() + AUTO_CONNECT_MAX_WAIT
+        while True:
+            status = get_service_status(force=True)
+            if status["state"] in ("online", "degraded"):
+                break
+            if time.time() > deadline:
+                break
+            time.sleep(3)
+
+    st.session_state.backend_connected = True
+
+
+auto_connect()
+
+
 # ============================================================
 # PARSING / FORMATTING HELPERS
 # ============================================================
@@ -673,7 +749,11 @@ def lookup_order(order_id_text: str) -> dict:
         if key in order and order[key] is not None:
             payload[key] = order[key]
 
-    order_record = {"info": order, "payload": payload}
+    order_record = {
+        "info": order,
+        "payload": payload,
+        "conditions": fetch_conditions(order_id),
+    }
 
     st.session_state.pending_order = order_record
     st.session_state.flow_state = "awaiting_confirmation"
@@ -761,6 +841,11 @@ def handle_user_message(text: str) -> dict:
 
             payload.update(edits)
             order_record["payload"] = payload
+
+            if "customer_lat" in edits or "customer_lon" in edits:
+                order_record["conditions"] = fetch_conditions(
+                    order_record["info"].get("order_id", "")
+                )
             st.session_state.pending_order = order_record
 
             return {"type": "order_found", "order": order_record, "changed": changed}
@@ -775,6 +860,81 @@ def handle_user_message(text: str) -> dict:
 # ============================================================
 # RENDERING
 # ============================================================
+
+def _card(label: str, value: str, size: int = 18) -> str:
+    return (
+        '<div class="result-card">'
+        f'<div class="result-label">{label}</div>'
+        f'<div class="result-value" style="font-size:{size}px;">{value}</div>'
+        "</div>"
+    )
+
+
+def _num(value, fmt: str, suffix: str = "") -> str:
+    try:
+        return format(float(value), fmt) + suffix
+    except (TypeError, ValueError):
+        return "N/A"
+
+
+def render_conditions(weather: dict, traffic: dict, errors: dict | None = None):
+    """Weather + traffic cards, shown for every order."""
+
+    if not weather and not traffic:
+        st.caption("🌤️ Live weather & 🚦 traffic are not available right now.")
+        return
+
+    where = weather.get("location_name")
+    st.markdown(
+        "**🌤️ Weather" + (f" — {where}" if where else "") + "**"
+    )
+
+    w1, w2, w3, w4 = st.columns(4)
+    w1.markdown(
+        _card("🌥️ Condition", display_text(weather.get("description")).title(), 15),
+        unsafe_allow_html=True,
+    )
+    w2.markdown(
+        _card("🌡️ Temperature", _num(weather.get("temperature_c"), ".1f", " °C")),
+        unsafe_allow_html=True,
+    )
+    w3.markdown(
+        _card("💧 Humidity", _num(weather.get("humidity_percent"), ".0f", "%")),
+        unsafe_allow_html=True,
+    )
+    w4.markdown(
+        _card("🌧️ Rainfall", _num(weather.get("rainfall_mm"), ".1f", " mm")),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("**🚦 Traffic**")
+
+    level = str(traffic.get("traffic_level") or "N/A")
+    t1, t2, t3 = st.columns(3)
+    t1.markdown(_card("🚦 Traffic Level", level.title()), unsafe_allow_html=True)
+    t2.markdown(
+        _card("📊 Traffic Index", _num(traffic.get("traffic_index"), ".1f")),
+        unsafe_allow_html=True,
+    )
+    t3.markdown(
+        _card(
+            "🚗 Current / Free-flow Speed",
+            f"{_num(traffic.get('current_speed_kmh'), '.0f')} / "
+            f"{_num(traffic.get('free_flow_speed_kmh'), '.0f')} km/h",
+            16,
+        ),
+        unsafe_allow_html=True,
+    )
+
+    if weather.get("has_rain") or level.lower() in ("high", "heavy", "severe"):
+        st.markdown(
+            '<span class="pill pill-warn">⚠️ Rain / heavy traffic may slow delivery</span>',
+            unsafe_allow_html=True,
+        )
+
+    if errors:
+        st.caption("Some live data used a fallback: " + "; ".join(errors.values()))
+
 
 def render_order_found(content: dict):
 
@@ -833,6 +993,15 @@ def render_order_found(content: dict):
             "</div>",
             unsafe_allow_html=True,
         )
+
+    st.markdown("")
+
+    conditions = order_record.get("conditions") or {}
+    render_conditions(
+        conditions.get("weather", {}),
+        conditions.get("traffic", {}),
+        conditions.get("errors"),
+    )
 
     st.markdown("")
 
@@ -916,35 +1085,9 @@ def render_prediction_message(content: dict):
     weather = result.get("weather") or {}
     traffic = result.get("traffic") or {}
 
-    with st.expander("🌤️ Weather & 🚦 traffic used for this prediction"):
-
-        wc1, wc2, wc3, wc4 = st.columns(4)
-
-        with wc1:
-            st.metric("Condition", format_optional(weather.get("description")))
-        with wc2:
-            temperature = weather.get("temperature_c")
-            st.metric(
-                "Temperature",
-                f"{temperature:.1f} °C" if temperature is not None else "N/A",
-            )
-        with wc3:
-            humidity = weather.get("humidity_percent")
-            st.metric(
-                "Humidity",
-                f"{humidity:.0f}%" if humidity is not None else "N/A",
-            )
-        with wc4:
-            st.metric("Rainfall", f"{to_float(weather.get('rainfall_mm')):.1f} mm")
-
-        tc1, tc2, tc3 = st.columns(3)
-
-        with tc1:
-            st.metric("Traffic Level", format_optional(traffic.get("traffic_level")))
-        with tc2:
-            st.metric("Traffic Index", f"{to_float(traffic.get('traffic_index')):.1f}")
-        with tc3:
-            st.metric("Current Speed", f"{to_float(traffic.get('current_speed_kmh')):.1f} km/h")
+    st.markdown("---")
+    st.markdown("##### Conditions used for this prediction")
+    render_conditions(weather, traffic)
 
     st.caption("Powered by real-time weather and traffic data.")
 
@@ -1024,6 +1167,14 @@ with st.sidebar:
                 f"📏 {to_float(payload.get('distance_km')):.1f} km  •  "
                 f"💵 ₹{to_float(payload.get('order_amount')):.0f}"
             )
+            cond = st.session_state.pending_order.get("conditions") or {}
+            w, t = cond.get("weather", {}), cond.get("traffic", {})
+            if w or t:
+                st.write(
+                    f"🌤️ {display_text(w.get('description')).title()} "
+                    f"{_num(w.get('temperature_c'), '.0f', '°C')}  •  "
+                    f"🚦 {display_text(t.get('traffic_level')).title()}"
+                )
 
     status = get_service_status()
     state = status["state"]
